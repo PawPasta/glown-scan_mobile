@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:glown_scan_mobile/core/network/api_client.dart';
 import 'package:glown_scan_mobile/core/network/api_endpoints.dart';
+import 'package:glown_scan_mobile/core/storage/auth_session_storage.dart';
 import 'package:glown_scan_mobile/features/auth/services/auth_api.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -42,6 +43,65 @@ void main() {
     expect(response.status, 200);
     expect(response.message, 'Logged in successfully');
     expect(response.data, {'accessToken': 'access-token'});
+  });
+
+  test('refresh sends the refresh token to the refresh endpoint', () async {
+    final api = AuthApi(
+      apiClient: ApiClient(
+        baseUri: Uri.parse(baseUri),
+        httpClient: MockClient((request) async {
+          expect(request.method, 'POST');
+          expect(request.url.path, ApiEndpoints.refresh);
+          expect(jsonDecode(request.body), {'refreshToken': 'old-refresh'});
+          return _jsonResponse({
+            'status': 200,
+            'message': 'Tokens refreshed',
+            'data': {
+              'accessToken': 'new-access',
+              'refreshToken': 'new-refresh',
+            },
+          }, 200);
+        }),
+      ),
+    );
+    addTearDown(api.close);
+
+    final response = await api.refresh(refreshToken: 'old-refresh');
+    expect(response.data, {
+      'accessToken': 'new-access',
+      'refreshToken': 'new-refresh',
+    });
+  });
+
+  test('Firebase login sends the Google ID token', () async {
+    final api = AuthApi(
+      apiClient: ApiClient(
+        baseUri: Uri.parse(baseUri),
+        httpClient: MockClient((request) async {
+          expect(request.method, 'POST');
+          expect(request.url.path, ApiEndpoints.firebaseLogin);
+          expect(jsonDecode(request.body), {
+            'idToken': 'google-id-token',
+            'platform': 'ANDROID',
+          });
+          return _jsonResponse({
+            'status': 200,
+            'message': 'Logged in successfully',
+            'data': {
+              'accessToken': 'backend-access',
+              'refreshToken': 'backend-refresh',
+            },
+          }, 200);
+        }),
+      ),
+    );
+    addTearDown(api.close);
+
+    final response = await api.firebaseLogin(idToken: 'google-id-token');
+    expect(response.data, {
+      'accessToken': 'backend-access',
+      'refreshToken': 'backend-refresh',
+    });
   });
 
   test('register sends the required JSON body', () async {
@@ -159,6 +219,61 @@ void main() {
     },
   );
 
+  test(
+    'refreshes expired tokens and retries the authenticated request',
+    () async {
+      final storage = _MemoryAuthSessionStore()
+        ..accessToken = 'expired-access'
+        ..refreshToken = 'old-refresh';
+      final requests = <http.Request>[];
+      final apiClient = ApiClient(
+        baseUri: Uri.parse(baseUri),
+        sessionStorage: storage,
+        httpClient: MockClient((request) async {
+          requests.add(request);
+          if (request.url.path == ApiEndpoints.profile) {
+            if (request.headers['authorization'] == 'Bearer expired-access') {
+              return _jsonResponse({
+                'status': 401,
+                'message': 'Access token expired',
+                'data': null,
+              }, 401);
+            }
+            return _jsonResponse({
+              'status': 200,
+              'message': 'Success',
+              'data': {'profile': true},
+            }, 200);
+          }
+
+          expect(request.url.path, ApiEndpoints.refresh);
+          expect(jsonDecode(request.body), {'refreshToken': 'old-refresh'});
+          return _jsonResponse({
+            'status': 200,
+            'message': 'Tokens refreshed',
+            'data': {
+              'accessToken': 'new-access',
+              'refreshToken': 'new-refresh',
+            },
+          }, 200);
+        }),
+      );
+      addTearDown(apiClient.close);
+
+      final response = await apiClient.get(
+        ApiEndpoints.profile,
+        requiresAuth: true,
+      );
+
+      expect(response.data, {'profile': true});
+      expect(requests, hasLength(3));
+      expect(requests[0].headers['authorization'], 'Bearer expired-access');
+      expect(requests[2].headers['authorization'], 'Bearer new-access');
+      expect(storage.accessToken, 'new-access');
+      expect(storage.refreshToken, 'new-refresh');
+    },
+  );
+
   test('REST client supports GET, POST, PUT, PATCH, and DELETE', () async {
     const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
     var requestIndex = 0;
@@ -208,6 +323,32 @@ void main() {
       ),
     );
   });
+}
+
+class _MemoryAuthSessionStore implements AuthSessionStore {
+  String? accessToken;
+  String? refreshToken;
+
+  @override
+  Future<String?> readAccessToken() async => accessToken;
+
+  @override
+  Future<String?> readRefreshToken() async => refreshToken;
+
+  @override
+  Future<void> saveTokens({
+    required String accessToken,
+    required String refreshToken,
+  }) async {
+    this.accessToken = accessToken;
+    this.refreshToken = refreshToken;
+  }
+
+  @override
+  Future<void> clear() async {
+    accessToken = null;
+    refreshToken = null;
+  }
 }
 
 http.Response _jsonResponse(Map<String, Object?> json, int statusCode) =>

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/storage/auth_session_storage.dart';
@@ -15,12 +17,14 @@ class LoginPage extends StatefulWidget {
     this.authApi,
     this.sessionStorage,
     this.fcmTokenProvider,
+    this.googleIdTokenProvider,
     super.key,
   });
 
   final AuthApiContract? authApi;
   final AuthSessionStore? sessionStorage;
   final Future<String?> Function()? fcmTokenProvider;
+  final Future<String?> Function()? googleIdTokenProvider;
 
   @override
   State<LoginPage> createState() => _LoginPageState();
@@ -82,6 +86,69 @@ class _LoginPageState extends State<LoginPage> {
     }
   }
 
+  Future<void> _loginWithGoogle() async {
+    setState(() => _isSubmitting = true);
+    try {
+      final String? idToken;
+      final provider = widget.googleIdTokenProvider;
+      if (provider != null) {
+        idToken = await provider();
+      } else {
+        final account = await GoogleSignIn().signIn();
+        if (account == null) return;
+
+        final authentication = await account.authentication;
+        if (authentication.idToken == null || authentication.idToken!.isEmpty) {
+          throw const ApiException('Could not get a Google ID token.');
+        }
+
+        final firebaseCredential = GoogleAuthProvider.credential(
+          idToken: authentication.idToken,
+          accessToken: authentication.accessToken,
+        );
+        final userCredential = await FirebaseAuth.instance.signInWithCredential(
+          firebaseCredential,
+        );
+        final user = userCredential.user;
+        if (user == null) {
+          throw const ApiException(
+            'Firebase sign-in completed without a user account.',
+          );
+        }
+
+        idToken = await user.getIdToken();
+      }
+
+      if (idToken == null || idToken.isEmpty) {
+        throw const ApiException('Could not get a Firebase ID token.');
+      }
+
+      final response = await _authApi.firebaseLogin(idToken: idToken);
+      final tokens = _readTokens(response.data);
+      await _sessionStorage.saveTokens(
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken,
+      );
+      if (!mounted) return;
+      showAuthMessage(context, response.message);
+      await Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const HomePage()),
+      );
+    } on ApiException catch (error) {
+      if (mounted) showAuthMessage(context, error.message, error: true);
+    } catch (error) {
+      if (mounted) {
+        showAuthMessage(
+          context,
+          'Could not log in with Google: $error',
+          error: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
   _AuthTokens _readTokens(Object? data) {
     if (data is! Map<String, dynamic>) {
       throw const ApiException(
@@ -99,10 +166,12 @@ class _LoginPageState extends State<LoginPage> {
         'The login response is missing an access token.',
       );
     }
-    return _AuthTokens(
-      accessToken: accessToken,
-      refreshToken: refreshToken is String ? refreshToken : null,
-    );
+    if (refreshToken is! String || refreshToken.isEmpty) {
+      throw const ApiException(
+        'The login response is missing a refresh token.',
+      );
+    }
+    return _AuthTokens(accessToken: accessToken, refreshToken: refreshToken);
   }
 
   void _openPage(Widget page) {
@@ -124,6 +193,7 @@ class _LoginPageState extends State<LoginPage> {
                 controller: _emailController,
                 label: 'Email address',
                 icon: Icons.mail_outline,
+                enabled: !_isSubmitting,
                 keyboardType: TextInputType.emailAddress,
                 textInputAction: TextInputAction.next,
                 validator: AuthValidators.email,
@@ -134,6 +204,7 @@ class _LoginPageState extends State<LoginPage> {
                 label: 'Password',
                 icon: Icons.lock_outline,
                 obscureText: _hidePassword,
+                enabled: !_isSubmitting,
                 textInputAction: TextInputAction.done,
                 validator: (value) => value == null || value.isEmpty
                     ? 'Enter your password.'
@@ -152,8 +223,11 @@ class _LoginPageState extends State<LoginPage> {
               Align(
                 alignment: Alignment.centerRight,
                 child: TextButton(
-                  onPressed: () =>
-                      _openPage(ResetPasswordPage(authApi: widget.authApi)),
+                  onPressed: _isSubmitting
+                      ? null
+                      : () => _openPage(
+                          ResetPasswordPage(authApi: widget.authApi),
+                        ),
                   child: const Text('Forgot your password?'),
                 ),
               ),
@@ -162,6 +236,15 @@ class _LoginPageState extends State<LoginPage> {
                 label: 'Log in',
                 isLoading: _isSubmitting,
                 onPressed: _login,
+              ),
+              const SizedBox(height: 12),
+              OutlinedButton.icon(
+                onPressed: _isSubmitting ? null : _loginWithGoogle,
+                icon: const Icon(Icons.g_mobiledata, size: 28),
+                label: const Text('Login with Google'),
+                style: OutlinedButton.styleFrom(
+                  minimumSize: const Size.fromHeight(52),
+                ),
               ),
             ],
           ),
@@ -176,7 +259,9 @@ class _LoginPageState extends State<LoginPage> {
               style: Theme.of(context).textTheme.bodyMedium,
             ),
             TextButton(
-              onPressed: () => _openPage(RegisterPage(authApi: widget.authApi)),
+              onPressed: _isSubmitting
+                  ? null
+                  : () => _openPage(RegisterPage(authApi: widget.authApi)),
               child: const Text('Create an account'),
             ),
           ],
@@ -187,8 +272,8 @@ class _LoginPageState extends State<LoginPage> {
 }
 
 class _AuthTokens {
-  const _AuthTokens({required this.accessToken, this.refreshToken});
+  const _AuthTokens({required this.accessToken, required this.refreshToken});
 
   final String accessToken;
-  final String? refreshToken;
+  final String refreshToken;
 }

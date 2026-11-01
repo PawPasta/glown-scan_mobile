@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:glown_scan_mobile/core/network/api_client.dart';
@@ -102,6 +104,168 @@ void main() {
     expect(find.text('Welcome to GlowScan'), findsOneWidget);
   });
 
+  testWidgets('Google login sends ID token and stores backend session', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final api = _FakeAuthApi();
+    final storage = _FakeAuthSessionStore();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          authApi: api,
+          sessionStorage: storage,
+          googleIdTokenProvider: () async => 'google-id-token',
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Login with Google'));
+    await tester.pumpAndSettle();
+
+    expect(api.firebaseLoginCalls, 1);
+    expect(api.lastIdToken, 'google-id-token');
+    expect(storage.accessToken, 'access-token');
+    expect(storage.refreshToken, 'refresh-token');
+    expect(find.text('Welcome to GlowScan'), findsOneWidget);
+  });
+
+  testWidgets('standard login disables other login controls while submitting', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final fcmToken = Completer<String?>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          authApi: _FakeAuthApi(),
+          sessionStorage: _FakeAuthSessionStore(),
+          fcmTokenProvider: () => fcmToken.future,
+        ),
+      ),
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Email address'),
+      'user@example.com',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Password'),
+      'Password123!',
+    );
+    await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.widgetWithText(TextFormField, 'Email address'),
+          )
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(find.widgetWithText(TextFormField, 'Password'))
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<TextButton>(
+            find.widgetWithText(TextButton, 'Forgot your password?'),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<TextButton>(
+            find.widgetWithText(TextButton, 'Create an account'),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<OutlinedButton>(
+            find.widgetWithText(OutlinedButton, 'Login with Google'),
+          )
+          .onPressed,
+      isNull,
+    );
+
+    fcmToken.complete('device-fcm-token');
+    await tester.pumpAndSettle();
+  });
+
+  testWidgets('Google login disables other login controls while submitting', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1100);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+
+    final googleIdToken = Completer<String?>();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: LoginPage(
+          authApi: _FakeAuthApi(),
+          sessionStorage: _FakeAuthSessionStore(),
+          googleIdTokenProvider: () => googleIdToken.future,
+        ),
+      ),
+    );
+    await tester.tap(find.text('Login with Google'));
+    await tester.pump();
+
+    expect(
+      tester
+          .widget<TextFormField>(
+            find.widgetWithText(TextFormField, 'Email address'),
+          )
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<TextFormField>(find.widgetWithText(TextFormField, 'Password'))
+          .enabled,
+      isFalse,
+    );
+    expect(
+      tester
+          .widget<TextButton>(
+            find.widgetWithText(TextButton, 'Forgot your password?'),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester
+          .widget<TextButton>(
+            find.widgetWithText(TextButton, 'Create an account'),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(
+      tester.widget<FilledButton>(find.byType(FilledButton)).onPressed,
+      isNull,
+    );
+
+    googleIdToken.complete('google-id-token');
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('reset password sends, checks token, and resends email', (
     tester,
   ) async {
@@ -144,11 +308,13 @@ void main() {
 class _FakeAuthApi implements AuthApiContract {
   int registerCalls = 0;
   int loginCalls = 0;
+  int firebaseLoginCalls = 0;
   int verificationResendCalls = 0;
   int resetRequestCalls = 0;
   int resetResendCalls = 0;
   int resetCheckCalls = 0;
   String? lastFcmToken;
+  String? lastIdToken;
   MobilePlatform? lastPlatform;
 
   @override
@@ -181,6 +347,28 @@ class _FakeAuthApi implements AuthApiContract {
       data: {'accessToken': 'access-token', 'refreshToken': 'refresh-token'},
     );
   }
+
+  @override
+  Future<ApiResponse> firebaseLogin({
+    required String idToken,
+    MobilePlatform platform = MobilePlatform.android,
+  }) async {
+    firebaseLoginCalls++;
+    lastIdToken = idToken;
+    return const ApiResponse(
+      status: 200,
+      message: 'Logged in successfully',
+      data: {'accessToken': 'access-token', 'refreshToken': 'refresh-token'},
+    );
+  }
+
+  @override
+  Future<ApiResponse> refresh({required String refreshToken}) async =>
+      const ApiResponse(
+        status: 200,
+        message: 'Tokens refreshed',
+        data: {'accessToken': 'access-token', 'refreshToken': 'refresh-token'},
+      );
 
   @override
   Future<ApiResponse> requestPasswordReset({required String email}) async {
@@ -230,9 +418,12 @@ class _FakeAuthSessionStore implements AuthSessionStore {
   Future<String?> readAccessToken() async => accessToken;
 
   @override
+  Future<String?> readRefreshToken() async => refreshToken;
+
+  @override
   Future<void> saveTokens({
     required String accessToken,
-    String? refreshToken,
+    required String refreshToken,
   }) async {
     this.accessToken = accessToken;
     this.refreshToken = refreshToken;

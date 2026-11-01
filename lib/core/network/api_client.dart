@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../storage/auth_session_storage.dart';
+import 'api_endpoints.dart';
 
 enum ApiMethod { get, post, put, patch, delete }
 
@@ -38,17 +39,54 @@ class ApiClient {
   ApiClient({
     http.Client? httpClient,
     Uri? baseUri,
-    Future<String?> Function()? accessTokenProvider,
+    this.accessTokenProvider,
+    AuthSessionStore? sessionStorage,
   }) : _httpClient = httpClient ?? http.Client(),
        _baseUri = baseUri ?? AppConfig.apiBaseUri,
-       _accessTokenProvider =
-           accessTokenProvider ?? AuthSessionStorage().readAccessToken;
+       _sessionStorage = sessionStorage ?? AuthSessionStorage();
 
   final http.Client _httpClient;
   final Uri _baseUri;
-  final Future<String?> Function() _accessTokenProvider;
+  final Future<String?> Function()? accessTokenProvider;
+  final AuthSessionStore _sessionStorage;
+  Future<String>? _refreshingAccessToken;
 
   Future<ApiResponse> request(
+    ApiMethod method,
+    String endpoint, {
+    Map<String, Object?>? json,
+    String? accessToken,
+    bool requiresAuth = false,
+  }) async {
+    final token =
+        accessToken ?? (requiresAuth ? await _readAccessToken() : null);
+    try {
+      return await _requestOnce(
+        method,
+        endpoint,
+        json: json,
+        accessToken: token,
+        requiresAuth: requiresAuth,
+      );
+    } on ApiException catch (error) {
+      if (!requiresAuth ||
+          endpoint == ApiEndpoints.refresh ||
+          error.statusCode != 401) {
+        rethrow;
+      }
+
+      final refreshedToken = await _refreshAccessToken(token);
+      return _requestOnce(
+        method,
+        endpoint,
+        json: json,
+        accessToken: refreshedToken,
+        requiresAuth: true,
+      );
+    }
+  }
+
+  Future<ApiResponse> _requestOnce(
     ApiMethod method,
     String endpoint, {
     Map<String, Object?>? json,
@@ -61,7 +99,7 @@ class ApiClient {
     }
 
     final token =
-        accessToken ?? (requiresAuth ? await _accessTokenProvider() : null);
+        accessToken ?? (requiresAuth ? await _readAccessToken() : null);
     if (requiresAuth && (token == null || token.isEmpty)) {
       throw const ApiException('Please log in again to continue.');
     }
@@ -115,6 +153,73 @@ class ApiClient {
       message: responseMessage,
       data: envelope['data'],
     );
+  }
+
+  Future<String?> _readAccessToken() =>
+      accessTokenProvider?.call() ?? _sessionStorage.readAccessToken();
+
+  Future<String> _refreshAccessToken(String? rejectedToken) async {
+    final currentToken = await _readAccessToken();
+    if (currentToken != null &&
+        currentToken.isNotEmpty &&
+        currentToken != rejectedToken) {
+      return currentToken;
+    }
+
+    final pendingRefresh = _refreshingAccessToken;
+    if (pendingRefresh != null) return pendingRefresh;
+
+    final refresh = _requestNewTokens();
+    _refreshingAccessToken = refresh;
+    try {
+      return await refresh;
+    } finally {
+      if (identical(_refreshingAccessToken, refresh)) {
+        _refreshingAccessToken = null;
+      }
+    }
+  }
+
+  Future<String> _requestNewTokens() async {
+    final refreshToken = await _sessionStorage.readRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) {
+      throw const ApiException(
+        'Please log in again to continue.',
+        statusCode: 401,
+      );
+    }
+
+    final response = await _requestOnce(
+      ApiMethod.post,
+      ApiEndpoints.refresh,
+      json: {'refreshToken': refreshToken},
+    );
+    final tokenData = response.data;
+    if (tokenData is! Map<String, dynamic>) {
+      throw const ApiException(
+        'The refresh response is missing access and refresh tokens.',
+      );
+    }
+    final nestedTokens = tokenData['tokens'];
+    final tokens = nestedTokens is Map<String, dynamic>
+        ? nestedTokens
+        : tokenData;
+    final accessToken = tokens['accessToken'];
+    final newRefreshToken = tokens['refreshToken'];
+    if (accessToken is! String ||
+        accessToken.isEmpty ||
+        newRefreshToken is! String ||
+        newRefreshToken.isEmpty) {
+      throw const ApiException(
+        'The refresh response is missing access and refresh tokens.',
+      );
+    }
+
+    await _sessionStorage.saveTokens(
+      accessToken: accessToken,
+      refreshToken: newRefreshToken,
+    );
+    return accessToken;
   }
 
   Future<ApiResponse> get(
