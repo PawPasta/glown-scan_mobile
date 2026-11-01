@@ -3,7 +3,12 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 abstract interface class AuthSessionStore {
   Future<String?> readAccessToken();
 
-  Future<void> saveTokens({required String accessToken, String? refreshToken});
+  Future<String?> readRefreshToken();
+
+  Future<void> saveTokens({
+    required String accessToken,
+    required String refreshToken,
+  });
 
   Future<void> clear();
 }
@@ -23,14 +28,13 @@ class AuthSessionStorage implements AuthSessionStore {
   @override
   Future<void> saveTokens({
     required String accessToken,
-    String? refreshToken,
+    required String refreshToken,
   }) async {
     await _storage.write(key: _accessTokenKey, value: accessToken);
-    if (refreshToken != null && refreshToken.isNotEmpty) {
-      await _storage.write(key: _refreshTokenKey, value: refreshToken);
-    }
+    await _storage.write(key: _refreshTokenKey, value: refreshToken);
   }
 
+  @override
   Future<String?> readRefreshToken() => _storage.read(key: _refreshTokenKey);
 
   @override
