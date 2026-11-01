@@ -1,0 +1,181 @@
+
+name: Flutter Staging APK
+
+on:
+  workflow_run:
+    workflows: ["Flutter CI"]
+    types:
+      - completed
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: flutter-staging-${{ github.event.workflow_run.head_branch }}
+  cancel-in-progress: false
+
+jobs:
+  build-and-distribute:
+    name: Build APK and distribute to Firebase
+    if: >-
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out the commit that passed CI
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: 3.47.5
+          channel: stable
+          cache: true
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Create local environment file
+        run: cp .env.example .env.local
+
+      - name: Configure Firebase Android
+        env:
+          FIREBASE_ANDROID_JSON_BASE64: ${{ secrets.FIREBASE_ANDROID_JSON_BASE64 }}
+        run: |
+          if [ -z "$FIREBASE_ANDROID_JSON_BASE64" ]; then
+            echo "::error::FIREBASE_ANDROID_JSON_BASE64 secret is required."
+            exit 1
+          fi
+
+          printf '%s' "$FIREBASE_ANDROID_JSON_BASE64" \
+            | base64 --decode > android/app/google-services.json
+
+          application_id=$(sed -n 's/.*applicationId = "\([^"]*\)".*/\1/p' android/app/build.gradle.kts)
+
+          if [ -z "$application_id" ]; then
+            echo "::error::Could not detect applicationId from build.gradle.kts."
+            exit 1
+          fi
+
+          jq -e --arg app_id "$application_id" \
+            '.project_info.project_id and any(.client[]; .client_info.android_client_info.package_name == $app_id)' \
+            android/app/google-services.json > /dev/null
+
+      - name: Configure staging signing key
+        env:
+          ANDROID_STAGING_KEYSTORE_BASE64: ${{ secrets.ANDROID_STAGING_KEYSTORE_BASE64 }}
+          ANDROID_STAGING_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_STAGING_KEYSTORE_PASSWORD }}
+          ANDROID_STAGING_KEY_ALIAS: ${{ secrets.ANDROID_STAGING_KEY_ALIAS }}
+          ANDROID_STAGING_KEY_PASSWORD: ${{ secrets.ANDROID_STAGING_KEY_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_STAGING_KEYSTORE_BASE64" ] ||
+             [ -z "$ANDROID_STAGING_KEYSTORE_PASSWORD" ] ||
+             [ -z "$ANDROID_STAGING_KEY_ALIAS" ] ||
+             [ -z "$ANDROID_STAGING_KEY_PASSWORD" ]; then
+            echo "::error::All ANDROID_STAGING_* signing secrets are required."
+            exit 1
+          fi
+
+          keystore_path="$RUNNER_TEMP/glownscan-staging.jks"
+
+          printf '%s' "$ANDROID_STAGING_KEYSTORE_BASE64" \
+            | base64 --decode > "$keystore_path"
+
+          {
+            echo "ANDROID_STAGING_KEYSTORE_PATH=$keystore_path"
+            echo "ANDROID_STAGING_KEYSTORE_PASSWORD=$ANDROID_STAGING_KEYSTORE_PASSWORD"
+            echo "ANDROID_STAGING_KEY_ALIAS=$ANDROID_STAGING_KEY_ALIAS"
+            echo "ANDROID_STAGING_KEY_PASSWORD=$ANDROID_STAGING_KEY_PASSWORD"
+          } >> "$GITHUB_ENV"
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build staging APK
+        env:
+          BUILD_NUMBER: ${{ github.event.workflow_run.run_number }}
+        run: |
+          flutter build apk \
+            --release \
+            --build-number "$BUILD_NUMBER"
+
+      - name: Prepare APK
+        id: apk
+        env:
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_RUN_NUMBER: ${{ github.event.workflow_run.run_number }}
+        run: |
+          short_sha="${SOURCE_SHA:0:7}"
+          apk_name="glownscan-staging-${CI_RUN_NUMBER}-${short_sha}.apk"
+
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/$apk_name"
+
+          echo "path=dist/$apk_name" >> "$GITHUB_OUTPUT"
+          echo "name=$apk_name" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+
+      - name: Configure Firebase Service Account
+        env:
+          FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          if [ -z "$FIREBASE_SERVICE_ACCOUNT_JSON" ]; then
+            echo "::error::FIREBASE_SERVICE_ACCOUNT_JSON secret is required."
+            exit 1
+          fi
+
+          credentials_file="$RUNNER_TEMP/firebase-service-account.json"
+
+          printf '%s' "$FIREBASE_SERVICE_ACCOUNT_JSON" > "$credentials_file"
+
+          jq -e '.client_email and .private_key and .project_id' \
+            "$credentials_file" > /dev/null
+
+          chmod 600 "$credentials_file"
+
+          echo "GOOGLE_APPLICATION_CREDENTIALS=$credentials_file" >> "$GITHUB_ENV"
+
+      - name: Distribute APK to Firebase App Distribution
+        env:
+          FIREBASE_APP_ID: ${{ vars.FIREBASE_APP_ID }}
+          FIREBASE_TESTER_GROUP: ${{ vars.FIREBASE_TESTER_GROUP }}
+          APK_PATH: ${{ steps.apk.outputs.path }}
+          BUILD_NUMBER: ${{ github.event.workflow_run.run_number }}
+          SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          if [ -z "$FIREBASE_APP_ID" ]; then
+            echo "::error::FIREBASE_APP_ID variable is required."
+            exit 1
+          fi
+
+          if [ -z "$FIREBASE_TESTER_GROUP" ]; then
+            echo "::error::FIREBASE_TESTER_GROUP variable is required."
+            exit 1
+          fi
+
+          firebase appdistribution:distribute "$APK_PATH" \
+            --app "$FIREBASE_APP_ID" \
+            --groups "$FIREBASE_TESTER_GROUP" \
+            --release-notes "Staging build #${BUILD_NUMBER} - commit ${SOURCE_SHA:0:7}"
+
+      - name: Upload APK as GitHub Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.name }}
+          path: ${{ steps.apk.outputs.path }}
+          retention-days: 7

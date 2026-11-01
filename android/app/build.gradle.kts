@@ -1,13 +1,38 @@
 plugins {
     id("com.android.application")
+    // START: FlutterFire Configuration
+    id("com.google.gms.google-services")
+    // END: FlutterFire Configuration
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
+
+val stagingKeystorePath = System.getenv("ANDROID_STAGING_KEYSTORE_PATH")
+val stagingKeystorePassword = System.getenv("ANDROID_STAGING_KEYSTORE_PASSWORD")
+val stagingKeyAlias = System.getenv("ANDROID_STAGING_KEY_ALIAS")
+val stagingKeyPassword = System.getenv("ANDROID_STAGING_KEY_PASSWORD")
+val hasStagingSigning = listOf(
+    stagingKeystorePath,
+    stagingKeystorePassword,
+    stagingKeyAlias,
+    stagingKeyPassword,
+).all { !it.isNullOrBlank() }
 
 android {
     namespace = "com.example.glown_scan_mobile"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
+
+    signingConfigs {
+        if (hasStagingSigning) {
+            create("staging") {
+                storeFile = file(stagingKeystorePath!!)
+                storePassword = stagingKeystorePassword!!
+                keyAlias = stagingKeyAlias!!
+                keyPassword = stagingKeyPassword!!
+            }
+        }
+    }
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
@@ -31,9 +56,9 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.getByName(
+                if (hasStagingSigning) "staging" else "debug",
+            )
         }
     }
 }
