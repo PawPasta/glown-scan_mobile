@@ -49,3 +49,7 @@ app.*.map.json
 
 # Local Flutter environment
 .env.local
+
+staging-release.jks
+android/app/google-services.json
+glownscan-staging.jks

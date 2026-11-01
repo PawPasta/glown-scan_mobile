@@ -218,6 +218,54 @@ The mobile UI follows the GlowScan Pink Editorial design system documented in
 touch-first layouts. Shared Flutter color, typography, form, and button tokens
 are defined in `lib/core/theme/app_theme.dart`.
 
+## Validate and continuous integration
+
+```bash
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test --coverage
+flutter build web --release
+```
+
+The Flutter CI workflow runs formatting, analysis, tests, and a web build for
+pushes and pull requests. The staging workflow runs only after CI succeeds for
+`main`; it builds a release-mode APK signed with the staging key and uploads it
+to Firebase App Distribution for testers. A copy is also retained as a GitHub
+Actions artifact for seven days. This distributes a test build and does not
+publish to Google Play.
+
+Configure these repository Actions secrets and variables for staging:
+
+- `FIREBASE_ANDROID_JSON_BASE64`: base64-encoded contents of
+  `android/app/google-services.json`.
+- `ANDROID_STAGING_KEYSTORE_BASE64`, `ANDROID_STAGING_KEYSTORE_PASSWORD`,
+  `ANDROID_STAGING_KEY_ALIAS`, and `ANDROID_STAGING_KEY_PASSWORD`: a persistent
+  Android staging keystore and its credentials, so tester updates can install
+  over the previous APK.
+- `FIREBASE_SERVICE_ACCOUNT_JSON`: service-account JSON with permission to
+  upload releases to Firebase App Distribution.
+- `FIREBASE_APP_ID`: Firebase Android app ID (Actions variable).
+- `FIREBASE_TESTER_GROUP`: App Distribution tester group alias (Actions
+  variable).
+
+Enable the Firebase App Distribution API in the service account's Google Cloud
+project and add testers to the configured group. The APK filename and release
+notes include the CI run number and source commit so testers can identify the
+build. The Android version code also uses the CI run number so newer APKs can
+update previous test installs.
+
+Generate a dedicated staging keystore locally and store its base64 contents and
+credentials as the `ANDROID_STAGING_*` secrets. On Windows PowerShell:
+
+```powershell
+keytool -genkeypair -v -keystore staging-release.jks -storetype JKS `
+  -keyalg RSA -keysize 2048 -validity 10000 -alias glownscan-staging
+[Convert]::ToBase64String([IO.File]::ReadAllBytes("staging-release.jks"))
+```
+
+Keep the keystore and passwords private and back them up securely. Do not
+commit them to the repository.
+
 ## Related backend documentation
 
 The backend repository is a sibling directory in the GlowScan workspace:
