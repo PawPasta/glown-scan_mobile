@@ -44,11 +44,11 @@ void main() {
 
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Password'),
-      'Strong1!',
+      'Strong!',
     );
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Confirm password'),
-      'Strong1!',
+      'Strong!',
     );
     await tester.tap(find.text('Create account'));
     await tester.pumpAndSettle();
@@ -91,7 +91,7 @@ void main() {
     );
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Password'),
-      'Password123!',
+      'Password!',
     );
     await tester.tap(find.widgetWithText(FilledButton, 'Log in'));
     await tester.pumpAndSettle();
@@ -101,7 +101,7 @@ void main() {
     expect(api.lastPlatform, MobilePlatform.android);
     expect(storage.accessToken, 'access-token');
     expect(storage.refreshToken, 'refresh-token');
-    expect(find.text('Welcome to GlowScan'), findsOneWidget);
+    expect(find.text('Care that starts with understanding.'), findsOneWidget);
   });
 
   testWidgets('Google login sends ID token and stores backend session', (
@@ -120,6 +120,7 @@ void main() {
           authApi: api,
           sessionStorage: storage,
           googleIdTokenProvider: () async => 'google-id-token',
+          fcmTokenProvider: () async => 'google-fcm-token',
         ),
       ),
     );
@@ -129,9 +130,10 @@ void main() {
 
     expect(api.firebaseLoginCalls, 1);
     expect(api.lastIdToken, 'google-id-token');
+    expect(api.lastFcmToken, 'google-fcm-token');
     expect(storage.accessToken, 'access-token');
     expect(storage.refreshToken, 'refresh-token');
-    expect(find.text('Welcome to GlowScan'), findsOneWidget);
+    expect(find.text('Care that starts with understanding.'), findsOneWidget);
   });
 
   testWidgets('standard login disables other login controls while submitting', (
@@ -351,10 +353,12 @@ class _FakeAuthApi implements AuthApiContract {
   @override
   Future<ApiResponse> firebaseLogin({
     required String idToken,
+    required String fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) async {
     firebaseLoginCalls++;
     lastIdToken = idToken;
+    lastFcmToken = fcmToken;
     return const ApiResponse(
       status: 200,
       message: 'Logged in successfully',
@@ -363,12 +367,14 @@ class _FakeAuthApi implements AuthApiContract {
   }
 
   @override
-  Future<ApiResponse> refresh({required String refreshToken}) async =>
-      const ApiResponse(
-        status: 200,
-        message: 'Tokens refreshed',
-        data: {'accessToken': 'access-token', 'refreshToken': 'refresh-token'},
-      );
+  Future<ApiResponse> refresh({
+    required String accessToken,
+    required String refreshToken,
+  }) async => const ApiResponse(
+    status: 200,
+    message: 'Tokens refreshed',
+    data: {'accessToken': 'access-token', 'refreshToken': 'refresh-token'},
+  );
 
   @override
   Future<ApiResponse> requestPasswordReset({required String email}) async {

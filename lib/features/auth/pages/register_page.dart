@@ -195,7 +195,7 @@ class _RegisterPageState extends State<RegisterPage> {
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Use at least 6 characters, including an uppercase letter, '
-                    'a lowercase letter, a number, and a special character.',
+                    'a lowercase letter, and a special character.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),

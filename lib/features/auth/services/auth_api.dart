@@ -26,10 +26,14 @@ abstract interface class AuthApiContract {
 
   Future<ApiResponse> firebaseLogin({
     required String idToken,
+    required String fcmToken,
     MobilePlatform platform,
   });
 
-  Future<ApiResponse> refresh({required String refreshToken});
+  Future<ApiResponse> refresh({
+    required String accessToken,
+    required String refreshToken,
+  });
 
   Future<ApiResponse> requestPasswordReset({required String email});
 
@@ -63,8 +67,13 @@ class AuthApi implements AuthApiContract {
   );
 
   @override
-  Future<ApiResponse> refresh({required String refreshToken}) => _apiClient
-      .post(ApiEndpoints.refresh, json: {'refreshToken': refreshToken});
+  Future<ApiResponse> refresh({
+    required String accessToken,
+    required String refreshToken,
+  }) => _apiClient.post(
+    ApiEndpoints.refresh,
+    json: {'accessToken': accessToken, 'refreshToken': refreshToken},
+  );
 
   @override
   Future<ApiResponse> loginMobile({
@@ -85,10 +94,15 @@ class AuthApi implements AuthApiContract {
   @override
   Future<ApiResponse> firebaseLogin({
     required String idToken,
+    required String fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) => _apiClient.post(
     ApiEndpoints.firebaseLogin,
-    json: {'idToken': idToken, 'platform': platform.apiValue},
+    json: {
+      'idToken': idToken,
+      'platform': platform.apiValue,
+      'fcmToken': fcmToken,
+    },
   );
 
   @override

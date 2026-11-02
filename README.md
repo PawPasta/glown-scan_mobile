@@ -104,7 +104,7 @@ HTTP status code. Request bodies are validated and unknown fields are rejected.
 | `POST` | `/auth/verify-email/check` | Check whether a website-used email verification token succeeded, using `email` and `token`. |
 | `POST` | `/auth/verify-email/resend` | Resend the email verification message using `email`. |
 | `POST` | `/auth/mobile/login` | Sign in with `email`, `password`, `platform` (`ANDROID`/`IOS`), and `fcmToken`; the token is saved with the login session. |
-| `POST` | `/auth/firebase/login` | Exchange a Firebase ID token for GlowScan access and refresh tokens. |
+| `POST` | `/auth/firebase/login` | Exchange a Firebase ID token and `fcmToken` for GlowScan access and refresh tokens. |
 | `POST` | `/auth/refresh` | Rotate the refresh token using both `accessToken` and `refreshToken`. |
 | `POST` | `/auth/logout` | Revoke the refresh-token family using `refreshToken`. |
 | `POST` | `/auth/password/reset/request` | Request a reset email; the response does not reveal account existence. |
@@ -123,11 +123,11 @@ Website-used email verification and reset tokens can be checked in the app;
 the check endpoints return `data.success`. Verification tokens expire after
 24 hours, while password-reset tokens expire after 1 hour.
 
-For Firebase sign-in, the client sends `{ "idToken": "..." }` to
-`/auth/firebase/login`. An optional `platform` is one of `ANDROID` or `IOS`
-(the backend also accepts `WEBSITE`). The backend verifies the ID token and
-requires a verified email; the client must not send a device UUID because the
-backend creates one for each login session.
+For Firebase sign-in, the client sends `idToken`, `fcmToken`, and `platform`
+to `/auth/firebase/login`. `platform` is one of `ANDROID` or `IOS` (the backend
+also accepts `WEBSITE`). The backend verifies the ID token and requires a
+verified email; the client must not send a device UUID because the backend
+creates one for each login session.
 
 ### Profile
 
@@ -151,6 +151,12 @@ to Cloudinary using the returned signed parameters, then confirm with
 `publicId`, `version`, `signature`, and `secureUrl` (map these from Cloudinary's
 `public_id` and `secure_url` response fields). Intents expire after 10 minutes
 and can only be used once.
+
+The Account screen edits the returned `skinProfile` with `PATCH
+/profile/skin`. Skin type supports `NORMAL`, `DRY`, `OILY`, and `COMBINATION`;
+sensitivity supports `LOW`, `MEDIUM`, and `HIGH`; notes are limited to 5,000
+characters and can be cleared. The Change password page sends the current
+`oldPassword` and new `newPassword` to `/auth/password/change`.
 
 ## Configuration and environments
 
@@ -180,6 +186,21 @@ are saved in secure storage. Register and password-reset pages show backend
 messages, support resending emails, and allow checking a reset token received
 by email.
 
+On later launches, the app checks the saved access-token expiration before
+showing Login. A complete, unexpired token pair opens Home directly. If the
+access token is expired, the app shows a session-restoration loading state and
+posts both tokens to `/auth/refresh`; successful rotation replaces both
+securely stored tokens. An invalid refresh token clears the session and opens
+Login, while connectivity/server errors show a retry option without discarding
+the saved tokens. The access-token expiration check reads the JWT `exp` claim;
+the backend remains authoritative for token validity.
+
+For any authenticated API request, an HTTP 401 triggers the same shared token
+refresh flow. A blocking loading overlay appears while the app rotates the
+tokens, then the original request is retried once with the new access token.
+If refresh is rejected or takes longer than 15 seconds, the app clears the
+session and returns to Login.
+
 ### Firebase
 
 Firebase sign-in is verified by the backend against
@@ -208,8 +229,19 @@ flutter pub get
 flutter run
 ```
 
-The first-launch onboarding and the login, registration, and password-reset
-flows are implemented. Skincare screens are not wired up yet.
+The first-launch onboarding, authentication flows, home overview, five-item
+bottom navigation, and account profile editing are implemented. The home
+overview introduces the planned skin analysis, routines, and product discovery
+without presenting them as available features. Camera analysis, skin analysis,
+routine tracking, and recommendations are not available yet because their
+backend workflows are not implemented.
+
+The Account tab loads `/profile`, updates personal details with `PATCH
+/profile`, and logs out through `/auth/logout`. Avatar changes use the signed
+upload flow: request `/profile/avatar/upload-intent`, upload the selected image
+directly to Cloudinary with the returned signature, then confirm the upload
+with `/profile/avatar/confirm`. Cloudinary API secrets remain on the backend;
+the mobile app only receives the short-lived signed upload parameters.
 
 ## Design system
 

@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:glown_scan_mobile/core/network/api_client.dart';
 import 'package:glown_scan_mobile/core/network/api_endpoints.dart';
+import 'package:glown_scan_mobile/core/network/auth_request_status.dart';
 import 'package:glown_scan_mobile/core/storage/auth_session_storage.dart';
 import 'package:glown_scan_mobile/features/auth/services/auth_api.dart';
 import 'package:http/http.dart' as http;
@@ -45,14 +47,17 @@ void main() {
     expect(response.data, {'accessToken': 'access-token'});
   });
 
-  test('refresh sends the refresh token to the refresh endpoint', () async {
+  test('refresh sends both session tokens to the refresh endpoint', () async {
     final api = AuthApi(
       apiClient: ApiClient(
         baseUri: Uri.parse(baseUri),
         httpClient: MockClient((request) async {
           expect(request.method, 'POST');
           expect(request.url.path, ApiEndpoints.refresh);
-          expect(jsonDecode(request.body), {'refreshToken': 'old-refresh'});
+          expect(jsonDecode(request.body), {
+            'accessToken': 'old-access',
+            'refreshToken': 'old-refresh',
+          });
           return _jsonResponse({
             'status': 200,
             'message': 'Tokens refreshed',
@@ -66,14 +71,17 @@ void main() {
     );
     addTearDown(api.close);
 
-    final response = await api.refresh(refreshToken: 'old-refresh');
+    final response = await api.refresh(
+      accessToken: 'old-access',
+      refreshToken: 'old-refresh',
+    );
     expect(response.data, {
       'accessToken': 'new-access',
       'refreshToken': 'new-refresh',
     });
   });
 
-  test('Firebase login sends the Google ID token', () async {
+  test('Firebase login sends the Google ID token and FCM token', () async {
     final api = AuthApi(
       apiClient: ApiClient(
         baseUri: Uri.parse(baseUri),
@@ -83,6 +91,7 @@ void main() {
           expect(jsonDecode(request.body), {
             'idToken': 'google-id-token',
             'platform': 'ANDROID',
+            'fcmToken': 'fcm-token',
           });
           return _jsonResponse({
             'status': 200,
@@ -97,7 +106,10 @@ void main() {
     );
     addTearDown(api.close);
 
-    final response = await api.firebaseLogin(idToken: 'google-id-token');
+    final response = await api.firebaseLogin(
+      idToken: 'google-id-token',
+      fcmToken: 'fcm-token',
+    );
     expect(response.data, {
       'accessToken': 'backend-access',
       'refreshToken': 'backend-refresh',
@@ -202,7 +214,7 @@ void main() {
             request.headers['authorization'],
             'Bearer stored-access-token',
           );
-          expect(request.url, Uri.parse('${baseUri}profile'));
+          expect(request.url, Uri.parse('${baseUri}auth/profile'));
           return http.Response(
             '{"status":200,"message":"Success","data":{}}',
             200,
@@ -247,7 +259,10 @@ void main() {
           }
 
           expect(request.url.path, ApiEndpoints.refresh);
-          expect(jsonDecode(request.body), {'refreshToken': 'old-refresh'});
+          expect(jsonDecode(request.body), {
+            'accessToken': 'expired-access',
+            'refreshToken': 'old-refresh',
+          });
           return _jsonResponse({
             'status': 200,
             'message': 'Tokens refreshed',
@@ -273,6 +288,47 @@ void main() {
       expect(storage.refreshToken, 'new-refresh');
     },
   );
+
+  test('times out a stalled refresh and expires the local session', () async {
+    final storage = _MemoryAuthSessionStore()
+      ..accessToken = 'expired-access'
+      ..refreshToken = 'old-refresh';
+    final requestStatus = AuthRequestStatus.instance;
+    final expirationVersion = requestStatus.sessionExpirationVersion;
+    final pendingRefresh = Completer<http.Response>();
+    final apiClient = ApiClient(
+      baseUri: Uri.parse(baseUri),
+      sessionStorage: storage,
+      refreshTimeout: const Duration(milliseconds: 20),
+      httpClient: MockClient((request) async {
+        if (request.url.path == ApiEndpoints.refresh) {
+          return pendingRefresh.future;
+        }
+        return _jsonResponse({
+          'status': 401,
+          'message': 'Access token expired',
+          'data': null,
+        }, 401);
+      }),
+    );
+    addTearDown(apiClient.close);
+
+    await expectLater(
+      apiClient.get(ApiEndpoints.profile, requiresAuth: true),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.statusCode,
+          'statusCode',
+          401,
+        ),
+      ),
+    );
+
+    expect(storage.accessToken, isNull);
+    expect(storage.refreshToken, isNull);
+    expect(requestStatus.isRefreshing, isFalse);
+    expect(requestStatus.sessionExpirationVersion, expirationVersion + 1);
+  });
 
   test('REST client supports GET, POST, PUT, PATCH, and DELETE', () async {
     const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
