@@ -123,7 +123,19 @@ class _LoginPageState extends State<LoginPage> {
         throw const ApiException('Could not get a Firebase ID token.');
       }
 
-      final response = await _authApi.firebaseLogin(idToken: idToken);
+      final fcmToken =
+          await (widget.fcmTokenProvider ??
+              PushNotificationService.instance.getToken)();
+      if (fcmToken == null || fcmToken.isEmpty) {
+        throw const ApiException(
+          'Could not get an FCM token. Allow notifications and try again.',
+        );
+      }
+
+      final response = await _authApi.firebaseLogin(
+        idToken: idToken,
+        fcmToken: fcmToken,
+      );
       final tokens = _readTokens(response.data);
       await _sessionStorage.saveTokens(
         accessToken: tokens.accessToken,
@@ -206,9 +218,7 @@ class _LoginPageState extends State<LoginPage> {
                 obscureText: _hidePassword,
                 enabled: !_isSubmitting,
                 textInputAction: TextInputAction.done,
-                validator: (value) => value == null || value.isEmpty
-                    ? 'Enter your password.'
-                    : null,
+                validator: AuthValidators.password,
                 suffix: IconButton(
                   tooltip: _hidePassword ? 'Show password' : 'Hide password',
                   onPressed: () =>

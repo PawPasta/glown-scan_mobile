@@ -12,10 +12,8 @@ class ApiEndpoints {
   static const changePassword = '/auth/password/change';
   static const refresh = '/auth/refresh';
   static const logout = '/auth/logout';
-  static const firebaseLogin = '/auth/firebase/login';
-
-  static const profile = '/profile';
-  static const skinProfile = '/profile/skin';
-  static const avatarUploadIntent = '/profile/avatar/upload-intent';
-  static const avatarConfirm = '/profile/avatar/confirm';
+  static const firebaseLogin = '/auth/firebase/mobile/login';
+  static const profile = '/auth/profile';
+  static const avatarUploadIntent = '/auth/profile/avatar/upload-intent';
+  static const avatarConfirm = '/auth/profile/avatar/confirm';
 }

@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
 import '../storage/auth_session_storage.dart';
+import 'auth_request_status.dart';
 import 'api_endpoints.dart';
 
 enum ApiMethod { get, post, put, patch, delete }
@@ -41,6 +43,7 @@ class ApiClient {
     Uri? baseUri,
     this.accessTokenProvider,
     AuthSessionStore? sessionStorage,
+    this.refreshTimeout = const Duration(seconds: 15),
   }) : _httpClient = httpClient ?? http.Client(),
        _baseUri = baseUri ?? AppConfig.apiBaseUri,
        _sessionStorage = sessionStorage ?? AuthSessionStorage();
@@ -49,7 +52,8 @@ class ApiClient {
   final Uri _baseUri;
   final Future<String?> Function()? accessTokenProvider;
   final AuthSessionStore _sessionStorage;
-  Future<String>? _refreshingAccessToken;
+  final Duration refreshTimeout;
+  static Future<String>? _refreshingAccessToken;
 
   Future<ApiResponse> request(
     ApiMethod method,
@@ -76,13 +80,20 @@ class ApiClient {
       }
 
       final refreshedToken = await _refreshAccessToken(token);
-      return _requestOnce(
-        method,
-        endpoint,
-        json: json,
-        accessToken: refreshedToken,
-        requiresAuth: true,
-      );
+      try {
+        return await _requestOnce(
+          method,
+          endpoint,
+          json: json,
+          accessToken: refreshedToken,
+          requiresAuth: true,
+        );
+      } on ApiException catch (retryError) {
+        if (retryError.statusCode == 401) {
+          await _expireSession();
+        }
+        rethrow;
+      }
     }
   }
 
@@ -181,45 +192,72 @@ class ApiClient {
   }
 
   Future<String> _requestNewTokens() async {
+    final currentAccessToken = await _readAccessToken();
     final refreshToken = await _sessionStorage.readRefreshToken();
-    if (refreshToken == null || refreshToken.isEmpty) {
+    if (currentAccessToken == null ||
+        currentAccessToken.isEmpty ||
+        refreshToken == null ||
+        refreshToken.isEmpty) {
+      await _expireSession();
       throw const ApiException(
         'Please log in again to continue.',
         statusCode: 401,
       );
     }
 
-    final response = await _requestOnce(
-      ApiMethod.post,
-      ApiEndpoints.refresh,
-      json: {'refreshToken': refreshToken},
-    );
-    final tokenData = response.data;
-    if (tokenData is! Map<String, dynamic>) {
-      throw const ApiException(
-        'The refresh response is missing access and refresh tokens.',
-      );
-    }
-    final nestedTokens = tokenData['tokens'];
-    final tokens = nestedTokens is Map<String, dynamic>
-        ? nestedTokens
-        : tokenData;
-    final accessToken = tokens['accessToken'];
-    final newRefreshToken = tokens['refreshToken'];
-    if (accessToken is! String ||
-        accessToken.isEmpty ||
-        newRefreshToken is! String ||
-        newRefreshToken.isEmpty) {
-      throw const ApiException(
-        'The refresh response is missing access and refresh tokens.',
-      );
-    }
+    final requestStatus = AuthRequestStatus.instance;
+    requestStatus.beginRefresh();
+    try {
+      final response = await _requestOnce(
+        ApiMethod.post,
+        ApiEndpoints.refresh,
+        json: {'accessToken': currentAccessToken, 'refreshToken': refreshToken},
+      ).timeout(refreshTimeout);
+      final tokenData = response.data;
+      if (tokenData is! Map<String, dynamic>) {
+        throw const ApiException(
+          'The refresh response is missing access and refresh tokens.',
+        );
+      }
+      final nestedTokens = tokenData['tokens'];
+      final tokens = nestedTokens is Map<String, dynamic>
+          ? nestedTokens
+          : tokenData;
+      final accessToken = tokens['accessToken'];
+      final newRefreshToken = tokens['refreshToken'];
+      if (accessToken is! String ||
+          accessToken.isEmpty ||
+          newRefreshToken is! String ||
+          newRefreshToken.isEmpty) {
+        throw const ApiException(
+          'The refresh response is missing access and refresh tokens.',
+        );
+      }
 
-    await _sessionStorage.saveTokens(
-      accessToken: accessToken,
-      refreshToken: newRefreshToken,
-    );
-    return accessToken;
+      await _sessionStorage.saveTokens(
+        accessToken: accessToken,
+        refreshToken: newRefreshToken,
+      );
+      return accessToken;
+    } on TimeoutException {
+      await _expireSession();
+      throw const ApiException(
+        'Session refresh timed out. Please log in again.',
+        statusCode: 401,
+      );
+    } on ApiException catch (error) {
+      if (error.statusCode == 401) {
+        await _expireSession();
+      }
+      rethrow;
+    } finally {
+      requestStatus.endRefresh();
+    }
+  }
+
+  Future<void> _expireSession() async {
+    await _sessionStorage.clear();
+    AuthRequestStatus.instance.expireSession();
   }
 
   Future<ApiResponse> get(

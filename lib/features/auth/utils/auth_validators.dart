@@ -21,9 +21,6 @@ class AuthValidators {
     if (!RegExp(r'[a-z]').hasMatch(password)) {
       return 'Include at least one lowercase letter.';
     }
-    if (!RegExp(r'[0-9]').hasMatch(password)) {
-      return 'Include at least one number.';
-    }
     if (!RegExp(r'[^A-Za-z0-9]').hasMatch(password)) {
       return 'Include at least one special character.';
     }
