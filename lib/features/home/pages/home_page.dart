@@ -6,6 +6,7 @@ import '../../../core/storage/auth_session_storage.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../account/pages/account_page.dart';
 import '../../auth/pages/login_page.dart';
+import '../../camera/pages/camera_analysis_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({this.sessionStorage, super.key});
@@ -61,12 +62,7 @@ class _HomePageState extends State<HomePage> {
       title: 'Analysis',
       description: 'Photo analysis and skin history will be available when the backend workflow is ready.',
     ),
-    2 => const _ComingSoonPage(
-      icon: Icons.camera_alt_outlined,
-      title: 'Camera',
-      description:
-          'Camera-based skin analysis is planned, but is not available yet.',
-    ),
+    2 => const CameraAnalysisPage(),
     3 => const _ComingSoonPage(
       icon: Icons.spa_outlined,
       title: 'Your routine',

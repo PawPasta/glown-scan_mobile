@@ -16,4 +16,6 @@ class ApiEndpoints {
   static const profile = '/auth/profile';
   static const avatarUploadIntent = '/auth/profile/avatar/upload-intent';
   static const avatarConfirm = '/auth/profile/avatar/confirm';
+  static const skinAnalysisUploadIntent = '/skin-analysis/upload-intent';
+  static const skinAnalysisAnalyze = '/skin-analysis/analyze';
 }
