@@ -104,7 +104,7 @@ HTTP status code. Request bodies are validated and unknown fields are rejected.
 | `POST` | `/auth/verify-email/check` | Check whether a website-used email verification token succeeded, using `email` and `token`. |
 | `POST` | `/auth/verify-email/resend` | Resend the email verification message using `email`. |
 | `POST` | `/auth/mobile/login` | Sign in with `email`, `password`, `platform` (`ANDROID`/`IOS`), and `fcmToken`; the token is saved with the login session. |
-| `POST` | `/auth/firebase/login` | Exchange a Firebase ID token and `fcmToken` for GlowScan access and refresh tokens. |
+| `POST` | `/auth/firebase/mobile/login` | Exchange a Firebase ID token and `fcmToken` for GlowScan access and refresh tokens. |
 | `POST` | `/auth/refresh` | Rotate the refresh token using both `accessToken` and `refreshToken`. |
 | `POST` | `/auth/logout` | Revoke the refresh-token family using `refreshToken`. |
 | `POST` | `/auth/password/reset/request` | Request a reset email; the response does not reveal account existence. |
@@ -124,7 +124,7 @@ the check endpoints return `data.success`. Verification tokens expire after
 24 hours, while password-reset tokens expire after 1 hour.
 
 For Firebase sign-in, the client sends `idToken`, `fcmToken`, and `platform`
-to `/auth/firebase/login`. `platform` is one of `ANDROID` or `IOS` (the backend
+to `/auth/firebase/mobile/login`. `platform` is one of `ANDROID` or `IOS` (the backend
 also accepts `WEBSITE`). The backend verifies the ID token and requires a
 verified email; the client must not send a device UUID because the backend
 creates one for each login session.
@@ -135,14 +135,14 @@ All profile endpoints require `Authorization: Bearer <accessToken>`.
 
 | Method | Endpoint | Purpose |
 | --- | --- | --- |
-| `GET` | `/profile` | Read personal and skin profile data. |
-| `PATCH` | `/profile` | Update `fullName`, `dateOfBirth`, or `gender`. |
-| `PATCH` | `/profile/skin` | Update `skinType`, `sensitivityLevel`, or `notes`. |
-| `POST` | `/profile/avatar/upload-intent` | Request signed metadata for an avatar upload. |
-| `POST` | `/profile/avatar/confirm` | Confirm a completed Cloudinary upload. |
+| `GET` | `/auth/profile` | Read personal and skin profile data. |
+| `PATCH` | `/auth/profile` | Update `fullName`, `dateOfBirth`, or `gender`. |
+| `PATCH` | `/auth/profile/skin` | Update `skinType`, `sensitivityLevel`, or `notes`. |
+| `POST` | `/auth/profile/avatar/upload-intent` | Request signed metadata for an avatar upload. |
+| `POST` | `/auth/profile/avatar/confirm` | Confirm a completed Cloudinary upload. |
 
 Omitted patch fields remain unchanged; nullable fields may be set to `null` to
-clear them. Allowed values include `MALE`, `FEMALE`, `OTHER`, and
+clear them. Allowed values include `MALE`, `FEMALE`, `OTHERS`, and
 `PREFER_NOT_TO_SAY` for gender; `NORMAL`, `DRY`, `OILY`, and `COMBINATION` for
 skin type; and `LOW`, `MEDIUM`, and `HIGH` for sensitivity.
 
@@ -153,7 +153,7 @@ to Cloudinary using the returned signed parameters, then confirm with
 and can only be used once.
 
 The Account screen edits the returned `skinProfile` with `PATCH
-/profile/skin`. Skin type supports `NORMAL`, `DRY`, `OILY`, and `COMBINATION`;
+/auth/profile/skin`. Skin type supports `NORMAL`, `DRY`, `OILY`, and `COMBINATION`;
 sensitivity supports `LOW`, `MEDIUM`, and `HIGH`; notes are limited to 5,000
 characters and can be cleared. The Change password page sends the current
 `oldPassword` and new `newPassword` to `/auth/password/change`.
@@ -236,11 +236,11 @@ without presenting them as available features. Camera analysis, skin analysis,
 routine tracking, and recommendations are not available yet because their
 backend workflows are not implemented.
 
-The Account tab loads `/profile`, updates personal details with `PATCH
-/profile`, and logs out through `/auth/logout`. Avatar changes use the signed
-upload flow: request `/profile/avatar/upload-intent`, upload the selected image
+The Account tab loads `/auth/profile`, updates personal details with `PATCH
+/auth/profile`, and logs out through `/auth/logout`. Avatar changes use the signed
+upload flow: request `/auth/profile/avatar/upload-intent`, upload the selected image
 directly to Cloudinary with the returned signature, then confirm the upload
-with `/profile/avatar/confirm`. Cloudinary API secrets remain on the backend;
+with `/auth/profile/avatar/confirm`. Cloudinary API secrets remain on the backend;
 the mobile app only receives the short-lived signed upload parameters.
 
 ## Design system
