@@ -34,8 +34,9 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
 
   FaceDetector? _faceDetector;
   CameraController? _cameraController;
-  late final SkinAnalysisApi _skinAnalysisApi =
-      widget.skinAnalysisApi ?? SkinAnalysisApi();
+  SkinAnalysisApi? _ownedSkinAnalysisApi;
+  SkinAnalysisApi get _skinAnalysisApi =>
+      widget.skinAnalysisApi ?? (_ownedSkinAnalysisApi ??= SkinAnalysisApi());
   _CameraStage _stage = _CameraStage.scanning;
   bool _isInitializing = true;
   bool _isProcessingImage = false;
@@ -58,7 +59,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     if (controller != null) unawaited(controller.dispose());
     final detector = _faceDetector;
     if (detector != null) unawaited(detector.close());
-    if (widget.skinAnalysisApi == null) _skinAnalysisApi.close();
+    _ownedSkinAnalysisApi?.close();
     super.dispose();
   }
 
