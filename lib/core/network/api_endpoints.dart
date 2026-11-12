@@ -18,4 +18,13 @@ class ApiEndpoints {
   static const avatarConfirm = '/auth/profile/avatar/confirm';
   static const skinAnalysisUploadIntent = '/skin-analysis/upload-intent';
   static const skinAnalysisAnalyze = '/skin-analysis/analyze';
+  static const skinAssessmentCurrent = '/skin-assessments/current';
+  static const skinAnalysis = '/skin-analysis';
+  static const recommendationsMe = '/recommendations/me';
+  static const routines = '/routines';
+  static const routineCurrent = '/routines/current';
+  static const notificationPreferences = '/notification-preferences';
+  static const notifications = '/notifications';
+  static const products = '/products';
+  static const deviceMe = '/devices/me';
 }

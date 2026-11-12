@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../services/account_api.dart';
+import '../../notifications/pages/notifications_page.dart';
 import 'change_password_page.dart';
 import 'profile_page.dart';
 
@@ -62,6 +63,12 @@ class _AccountPageState extends State<AccountPage> {
         icon: Icons.lock_outline_rounded,
         label: 'Change password',
         onPressed: () => _openPage(ChangePasswordPage(accountApi: _accountApi)),
+      ),
+      const SizedBox(height: 12),
+      _accountButton(
+        icon: Icons.notifications_outlined,
+        label: 'Notifications',
+        onPressed: () => _openPage(const NotificationsPage()),
       ),
       const SizedBox(height: 12),
       _accountButton(

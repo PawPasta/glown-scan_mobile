@@ -3,10 +3,14 @@ import 'package:flutter/material.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../../core/storage/auth_session_storage.dart';
+import '../../../core/storage/installation_storage.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../account/pages/account_page.dart';
 import '../../auth/pages/login_page.dart';
 import '../../camera/pages/camera_analysis_page.dart';
+import '../../notifications/services/device_registration_service.dart';
+import '../../routine/pages/routine_page.dart';
+import '../../skin/pages/skin_hub_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({this.sessionStorage, super.key});
@@ -27,6 +31,11 @@ class _HomePageState extends State<HomePage> {
     String? logoutWarning;
     final apiClient = ApiClient();
     try {
+      final deviceApi = DeviceApiClient(apiClient: apiClient);
+      await DeviceRegistrationService(
+        deviceApi: deviceApi,
+        installationStore: InstallationStorage(),
+      ).unregister();
       final refreshToken = await sessionStorage.readRefreshToken();
       if (refreshToken != null && refreshToken.isNotEmpty) {
         await apiClient.post(
@@ -57,17 +66,9 @@ class _HomePageState extends State<HomePage> {
 
   Widget _bodyForSelectedTab() => switch (_selectedIndex) {
     0 => const _HomeOverview(),
-    1 => const _ComingSoonPage(
-      icon: Icons.face_retouching_natural_outlined,
-      title: 'Analysis',
-      description: 'Photo analysis and skin history will be available when the backend workflow is ready.',
-    ),
+    1 => const SkinHubPage(),
     2 => const CameraAnalysisPage(),
-    3 => const _ComingSoonPage(
-      icon: Icons.spa_outlined,
-      title: 'Your routine',
-      description: 'Morning and evening routines will appear here when routine tracking is available.',
-    ),
+    3 => const RoutinePage(),
     4 => AccountPage(onLogout: _logout),
     _ => const _HomeOverview(),
   };
@@ -241,35 +242,6 @@ class _HomeFeatureRow extends StatelessWidget {
           ),
         ),
       ],
-    ),
-  );
-}
-
-class _ComingSoonPage extends StatelessWidget {
-  const _ComingSoonPage({
-    required this.icon,
-    required this.title,
-    required this.description,
-  });
-
-  final IconData icon;
-  final String title;
-  final String description;
-
-  @override
-  Widget build(BuildContext context) => Center(
-    child: Padding(
-      padding: const EdgeInsets.all(32),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 48, color: AppTheme.deepRose),
-          const SizedBox(height: 16),
-          Text(title, style: Theme.of(context).textTheme.headlineSmall),
-          const SizedBox(height: 8),
-          Text(description, textAlign: TextAlign.center),
-        ],
-      ),
     ),
   );
 }

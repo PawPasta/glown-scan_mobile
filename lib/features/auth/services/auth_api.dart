@@ -20,13 +20,13 @@ abstract interface class AuthApiContract {
   Future<ApiResponse> loginMobile({
     required String email,
     required String password,
-    required String fcmToken,
+    String? fcmToken,
     MobilePlatform platform,
   });
 
   Future<ApiResponse> firebaseLogin({
     required String idToken,
-    required String fcmToken,
+    String? fcmToken,
     MobilePlatform platform,
   });
 
@@ -79,7 +79,7 @@ class AuthApi implements AuthApiContract {
   Future<ApiResponse> loginMobile({
     required String email,
     required String password,
-    required String fcmToken,
+    String? fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) => _apiClient.post(
     ApiEndpoints.loginMobile,
@@ -87,21 +87,21 @@ class AuthApi implements AuthApiContract {
       'email': email,
       'password': password,
       'platform': platform.apiValue,
-      'fcmToken': fcmToken,
+      if (fcmToken != null && fcmToken.isNotEmpty) 'fcmToken': fcmToken,
     },
   );
 
   @override
   Future<ApiResponse> firebaseLogin({
     required String idToken,
-    required String fcmToken,
+    String? fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) => _apiClient.post(
     ApiEndpoints.firebaseLogin,
     json: {
       'idToken': idToken,
       'platform': platform.apiValue,
-      'fcmToken': fcmToken,
+      if (fcmToken != null && fcmToken.isNotEmpty) 'fcmToken': fcmToken,
     },
   );
 

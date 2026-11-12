@@ -56,9 +56,21 @@ android {
 
     buildTypes {
         release {
-            signingConfig = signingConfigs.getByName(
-                if (hasStagingSigning) "staging" else "debug",
-            )
+            if (hasStagingSigning) {
+                signingConfig = signingConfigs.getByName("staging")
+            }
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name.contains("Release", ignoreCase = true)) {
+        doFirst {
+            check(hasStagingSigning) {
+                "Release builds require ANDROID_STAGING_KEYSTORE_PATH, " +
+                    "ANDROID_STAGING_KEYSTORE_PASSWORD, ANDROID_STAGING_KEY_ALIAS, " +
+                    "and ANDROID_STAGING_KEY_PASSWORD."
+            }
         }
     }
 }

@@ -353,6 +353,21 @@ void main() {
     expect(requestIndex, methods.length);
   });
 
+  test('accepts a successful response without a data field', () async {
+    final client = ApiClient(
+      baseUri: Uri.parse(baseUri),
+      httpClient: MockClient(
+        (_) async => http.Response('{"status":200,"message":"Removed"}', 200),
+      ),
+    );
+    addTearDown(client.close);
+
+    final response = await client.delete(ApiEndpoints.deviceMe);
+
+    expect(response.data, isNull);
+    expect(response.message, 'Removed');
+  });
+
   test('throws the backend message and status for failed responses', () async {
     final client = ApiClient(
       baseUri: Uri.parse(baseUri),
