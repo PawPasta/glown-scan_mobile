@@ -65,9 +65,7 @@ void main() {
     expect(api.verificationResendCalls, 1);
   });
 
-  testWidgets('login sends Android FCM token and stores session', (
-    tester,
-  ) async {
+  testWidgets('login does not wait for FCM and stores session', (tester) async {
     tester.view.physicalSize = const Size(800, 1100);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -97,14 +95,14 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.loginCalls, 1);
-    expect(api.lastFcmToken, 'device-fcm-token');
+    expect(api.lastFcmToken, isNull);
     expect(api.lastPlatform, MobilePlatform.android);
     expect(storage.accessToken, 'access-token');
     expect(storage.refreshToken, 'refresh-token');
     expect(find.text('Care that starts with understanding.'), findsOneWidget);
   });
 
-  testWidgets('Google login sends ID token and stores backend session', (
+  testWidgets('Google login does not wait for FCM and stores backend session', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(800, 1100);
@@ -130,7 +128,7 @@ void main() {
 
     expect(api.firebaseLoginCalls, 1);
     expect(api.lastIdToken, 'google-id-token');
-    expect(api.lastFcmToken, 'google-fcm-token');
+    expect(api.lastFcmToken, isNull);
     expect(storage.accessToken, 'access-token');
     expect(storage.refreshToken, 'refresh-token');
     expect(find.text('Care that starts with understanding.'), findsOneWidget);
@@ -337,7 +335,7 @@ class _FakeAuthApi implements AuthApiContract {
   Future<ApiResponse> loginMobile({
     required String email,
     required String password,
-    required String fcmToken,
+    String? fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) async {
     loginCalls++;
@@ -353,7 +351,7 @@ class _FakeAuthApi implements AuthApiContract {
   @override
   Future<ApiResponse> firebaseLogin({
     required String idToken,
-    required String fcmToken,
+    String? fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) async {
     firebaseLoginCalls++;

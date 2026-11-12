@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
@@ -121,6 +122,8 @@ class AccountApi implements AccountApiContract {
 
   final ApiClient _apiClient;
   final http.Client _cloudinaryClient;
+  static const _maxAvatarBytes = 10 * 1024 * 1024;
+  static const _uploadTimeout = Duration(seconds: 60);
 
   @override
   Future<UserProfile> getProfile() async {
@@ -172,6 +175,13 @@ class AccountApi implements AccountApiContract {
 
   @override
   Future<UserProfile> uploadAvatar(XFile image) async {
+    final extension = image.name.split('.').last.toLowerCase();
+    if (!const {'jpg', 'jpeg', 'png', 'webp'}.contains(extension)) {
+      throw const ApiException('Choose a JPG, PNG, or WEBP image.');
+    }
+    if (await image.length() > _maxAvatarBytes) {
+      throw const ApiException('Choose an image smaller than 10 MB.');
+    }
     final intentResponse = await _apiClient.post(
       ApiEndpoints.avatarUploadIntent,
       requiresAuth: true,
@@ -191,8 +201,24 @@ class AccountApi implements AccountApiContract {
           ..fields['api_key'] = intent.apiKey
           ..files.add(await http.MultipartFile.fromPath('file', image.path));
 
-    final streamedResponse = await _cloudinaryClient.send(cloudinaryRequest);
-    final cloudinaryResponse = await http.Response.fromStream(streamedResponse);
+    late http.Response cloudinaryResponse;
+    try {
+      final streamedResponse = await _cloudinaryClient
+          .send(cloudinaryRequest)
+          .timeout(_uploadTimeout);
+      cloudinaryResponse = await http.Response.fromStream(streamedResponse)
+          .timeout(_uploadTimeout);
+    } on TimeoutException {
+      throw const ApiException(
+        'The photo upload timed out. Check your connection and try again.',
+        kind: ApiErrorKind.timeout,
+      );
+    } on http.ClientException {
+      throw const ApiException(
+        'The photo could not be uploaded. Check your connection and try again.',
+        kind: ApiErrorKind.network,
+      );
+    }
     final Map<String, dynamic> uploaded;
     try {
       final decoded = jsonDecode(utf8.decode(cloudinaryResponse.bodyBytes));

@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'core/network/auth_request_status.dart';
+import 'core/storage/installation_storage.dart';
 import 'core/theme/app_theme.dart';
 import 'features/auth/pages/login_page.dart';
 import 'features/auth/services/auth_session_service.dart';
 import 'features/home/pages/home_page.dart';
 import 'features/notifications/services/push_notification_service.dart';
+import 'features/notifications/services/device_registration_service.dart';
 import 'features/onboarding/pages/onboarding_page.dart';
 import 'features/onboarding/services/onboarding_preferences.dart';
 import 'firebase_options.dart';
@@ -155,10 +157,26 @@ class _AppStartupGateState extends State<AppStartupGate> {
     return _resolveSession();
   }
 
-  Future<_StartupDestination> _resolveSession() async =>
-      await _sessionService.restoreSession()
-      ? _StartupDestination.home
-      : _StartupDestination.login;
+  Future<_StartupDestination> _resolveSession() async {
+    if (!await _sessionService.restoreSession()) {
+      return _StartupDestination.login;
+    }
+    unawaited(_syncDeviceAfterRestore());
+    return _StartupDestination.home;
+  }
+
+  Future<void> _syncDeviceAfterRestore() async {
+    try {
+      final api = DeviceApiClient();
+      await DeviceRegistrationService(
+        deviceApi: api,
+        installationStore: InstallationStorage(),
+      ).syncCurrentPushToken();
+      api.close();
+    } catch (_) {
+      // Device registration is best-effort and cannot prevent app startup.
+    }
+  }
 
   Future<void> _completeOnboarding() async {
     await OnboardingPreferences.markCompleted();

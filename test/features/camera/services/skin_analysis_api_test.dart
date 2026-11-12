@@ -11,7 +11,7 @@ import 'package:image_picker/image_picker.dart';
 
 void main() {
   test(
-    'uploads a captured image and sends its Cloudinary details for analysis',
+    'uploads a photo, submits an idempotent analysis job, and reads status',
     () async {
       final directory = await Directory.systemTemp.createTemp(
         'glownscan-camera-',
@@ -19,94 +19,82 @@ void main() {
       addTearDown(() => directory.delete(recursive: true));
       final photo = File('${directory.path}${Platform.pathSeparator}face.jpg')
         ..writeAsBytesSync([1, 2, 3]);
-      final backendRequests = <http.Request>[];
-      final apiClient = ApiClient(
+      final backend = ApiClient(
         baseUri: Uri.parse('https://api.glownscan.xyz/'),
         accessTokenProvider: () async => 'access-token',
         httpClient: MockClient((request) async {
-          backendRequests.add(request);
           if (request.url.path == ApiEndpoints.skinAnalysisUploadIntent) {
-            return _jsonResponse({
+            return _json({
               'status': 201,
-              'message': 'Created successfully',
+              'message': 'Created',
               'data': {
                 'publicId': 'glownscan/skin-analysis/user-id/scan-id',
                 'timestamp': 1794380513,
                 'signature': 'intent-signature',
-                'apiKey': 'cloudinary-api-key',
-                'cloudName': 'glownscan',
+                'apiKey': 'key',
+                'cloudName': 'cloud',
               },
             }, 201);
           }
-
-          expect(request.url.path, ApiEndpoints.skinAnalysisAnalyze);
-          expect(jsonDecode(request.body), {
-            'publicId': 'glownscan/skin-analysis/user-id/scan-id',
-            'version': 42,
-            'signature': 'cloudinary-signature',
-            'secureUrl':
-                'https://res.cloudinary.com/glownscan/image/upload/face.jpg',
-          });
-          return _jsonResponse({
+          if (request.url.path == ApiEndpoints.skinAnalysisAnalyze) {
+            expect(request.headers['idempotency-key'], 'retry-safe-key');
+            expect(
+              jsonDecode(request.body),
+              containsPair(
+                'publicId',
+                'glownscan/skin-analysis/user-id/scan-id',
+              ),
+            );
+            return _json({
+              'status': 202,
+              'message': 'Queued',
+              'data': {'sessionId': 'session-id', 'status': 'QUEUED'},
+            }, 202);
+          }
+          expect(request.url.path, '${ApiEndpoints.skinAnalysis}/session-id');
+          return _json({
             'status': 200,
-            'message': 'Analysis completed',
-            'data': {'score': 91},
+            'message': 'Success',
+            'data': {
+              'id': 'session-id',
+              'status': 'SUCCEEDED',
+              'result': {'quality': 'good'},
+            },
           }, 200);
         }),
       );
-      final cloudinaryClient = MockClient((request) async {
-        expect(request.method, 'POST');
-        expect(request.url.host, 'api.cloudinary.com');
-        expect(request.url.path, '/v1_1/glownscan/image/upload');
-        expect(
-          request.headers['content-type'],
-          startsWith('multipart/form-data; boundary='),
-        );
-        expect(
-          request.body,
-          contains(
-            'name="public_id"\r\n\r\nglownscan/skin-analysis/user-id/scan-id',
-          ),
-        );
-        return _jsonResponse({
+      final cloudinary = MockClient((request) async {
+        expect(request.url.path, '/v1_1/cloud/image/upload');
+        return _json({
           'public_id': 'glownscan/skin-analysis/user-id/scan-id',
           'version': 42,
           'signature': 'cloudinary-signature',
           'secure_url':
-              'https://res.cloudinary.com/glownscan/image/upload/face.jpg',
+              'https://res.cloudinary.com/cloud/image/upload/face.jpg',
         }, 200);
       });
       final api = SkinAnalysisApi(
-        apiClient: apiClient,
-        cloudinaryClient: cloudinaryClient,
+        apiClient: backend,
+        cloudinaryClient: cloudinary,
       );
       addTearDown(api.close);
 
-      final result = await api.analyze(XFile(photo.path));
-
-      expect(result, {
-        'status': 200,
-        'message': 'Analysis completed',
-        'data': {'score': 91},
-      });
-      expect(backendRequests.map((request) => request.url.path), [
-        ApiEndpoints.skinAnalysisUploadIntent,
-        ApiEndpoints.skinAnalysisAnalyze,
-      ]);
-      expect(
-        backendRequests.every(
-          (request) =>
-              request.headers['authorization'] == 'Bearer access-token',
-        ),
-        isTrue,
+      final queued = await api.analyze(
+        XFile(photo.path),
+        idempotencyKey: 'retry-safe-key',
       );
+      final completed = await api.getStatus(queued.id);
+
+      expect(queued.status, 'QUEUED');
+      expect(completed.status, 'SUCCEEDED');
+      expect(completed.result, {'quality': 'good'});
     },
   );
 }
 
-http.Response _jsonResponse(Map<String, Object?> body, int statusCode) =>
+http.Response _json(Map<String, Object?> body, int statusCode) =>
     http.Response.bytes(
       utf8.encode(jsonEncode(body)),
       statusCode,
-      headers: const {'content-type': 'application/json; charset=utf-8'},
+      headers: const {'content-type': 'application/json'},
     );

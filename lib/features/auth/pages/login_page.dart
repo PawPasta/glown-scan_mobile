@@ -1,11 +1,14 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/storage/auth_session_storage.dart';
+import '../../../core/storage/installation_storage.dart';
 import '../../home/pages/home_page.dart';
-import '../../notifications/services/push_notification_service.dart';
+import '../../notifications/services/device_registration_service.dart';
 import '../services/auth_api.dart';
 import '../utils/auth_validators.dart';
 import '../widgets/auth_page_frame.dart';
@@ -51,25 +54,17 @@ class _LoginPageState extends State<LoginPage> {
     if (!_formKey.currentState!.validate()) return;
     setState(() => _isSubmitting = true);
     try {
-      final fcmToken =
-          await (widget.fcmTokenProvider ??
-              PushNotificationService.instance.getToken)();
-      if (fcmToken == null || fcmToken.isEmpty) {
-        throw const ApiException(
-          'Could not get an FCM token. Allow notifications and try again.',
-        );
-      }
-
       final response = await _authApi.loginMobile(
         email: _emailController.text.trim(),
         password: _passwordController.text,
-        fcmToken: fcmToken,
+        fcmToken: null,
       );
       final tokens = _readTokens(response.data);
       await _sessionStorage.saveTokens(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
       );
+      unawaited(_syncDevice());
       if (!mounted) return;
       showAuthMessage(context, response.message);
       await Navigator.of(context).pushReplacement(
@@ -123,24 +118,16 @@ class _LoginPageState extends State<LoginPage> {
         throw const ApiException('Could not get a Firebase ID token.');
       }
 
-      final fcmToken =
-          await (widget.fcmTokenProvider ??
-              PushNotificationService.instance.getToken)();
-      if (fcmToken == null || fcmToken.isEmpty) {
-        throw const ApiException(
-          'Could not get an FCM token. Allow notifications and try again.',
-        );
-      }
-
       final response = await _authApi.firebaseLogin(
         idToken: idToken,
-        fcmToken: fcmToken,
+        fcmToken: null,
       );
       final tokens = _readTokens(response.data);
       await _sessionStorage.saveTokens(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken,
       );
+      unawaited(_syncDevice());
       if (!mounted) return;
       showAuthMessage(context, response.message);
       await Navigator.of(context).pushReplacement(
@@ -158,6 +145,20 @@ class _LoginPageState extends State<LoginPage> {
       }
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _syncDevice() async {
+    try {
+      final api = DeviceApiClient();
+      final service = DeviceRegistrationService(
+        deviceApi: api,
+        installationStore: InstallationStorage(),
+      );
+      await service.syncCurrentPushToken();
+      api.close();
+    } catch (_) {
+      // Device registration is best-effort and must never affect login.
     }
   }
 

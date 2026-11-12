@@ -1,0 +1,441 @@
+import 'package:flutter/material.dart';
+
+import '../../../core/network/api_client.dart';
+import '../../../core/theme/app_theme.dart';
+import '../services/skin_care_api.dart';
+import 'product_detail_page.dart';
+
+class SkinHubPage extends StatefulWidget {
+  const SkinHubPage({this.api, super.key});
+  final SkinCareApiContract? api;
+
+  @override
+  State<SkinHubPage> createState() => _SkinHubPageState();
+}
+
+class _SkinHubPageState extends State<SkinHubPage> {
+  late final SkinCareApiContract _api = widget.api ?? SkinCareApi();
+  late Future<_SkinHubData> _data = _load();
+
+  Future<_SkinHubData> _load() async => _SkinHubData(
+    assessment: await _api.getAssessment(),
+    history: await _api.getHistory(limit: 10),
+    recommendations: await _api.getRecommendations(limit: 10),
+  );
+
+  @override
+  void dispose() {
+    if (widget.api == null && _api is SkinCareApi) {
+      (_api).close();
+    }
+    super.dispose();
+  }
+
+  Future<void> _edit(SkinAssessment? initial) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => SkinAssessmentPage(api: _api, initial: initial),
+      ),
+    );
+    if (saved == true && mounted) setState(() => _data = _load());
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<_SkinHubData>(
+    future: _data,
+    builder: (context, snapshot) {
+      if (snapshot.connectionState != ConnectionState.done) {
+        return const Center(child: CircularProgressIndicator());
+      }
+      if (snapshot.hasError) {
+        return _LoadError(onRetry: () => setState(() => _data = _load()));
+      }
+      final data = snapshot.requireData;
+      return RefreshIndicator(
+        onRefresh: () async => setState(() => _data = _load()),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
+          children: [
+            Text(
+              'Your skin profile',
+              style: Theme.of(context).textTheme.headlineSmall,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Keep your answers current for more relevant insights and product matches.',
+              style: Theme.of(context).textTheme.bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            _AssessmentCard(
+              assessment: data.assessment,
+              onEdit: () => _edit(data.assessment),
+            ),
+            const SizedBox(height: 24),
+            Text(
+              'Recent analyses',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 10),
+            if (data.history.items.isEmpty)
+              const _EmptyCard(
+                message:
+                    'Your completed and in-progress analyses will appear here.',
+              )
+            else
+              ...data.history.items.map(_AnalysisTile.new),
+            const SizedBox(height: 24),
+            Text(
+              'Recommended for you',
+              style: Theme.of(context).textTheme.titleLarge,
+            ),
+            const SizedBox(height: 10),
+            if (data.recommendations.isEmpty)
+              const _EmptyCard(
+                message: 'Complete your skin profile or an analysis to see product matches.',
+              )
+            else
+              ...data.recommendations.map(
+                (item) => _RecommendationCard(
+                  item,
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => ProductDetailPage(productId: item.id),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+}
+
+class SkinAssessmentPage extends StatefulWidget {
+  const SkinAssessmentPage({required this.api, this.initial, super.key});
+  final SkinCareApiContract api;
+  final SkinAssessment? initial;
+  @override
+  State<SkinAssessmentPage> createState() => _SkinAssessmentPageState();
+}
+
+class _SkinAssessmentPageState extends State<SkinAssessmentPage> {
+  late String _skinType = widget.initial?.answers.skinType ?? 'NOT_SURE';
+  late String _sensitivity = widget.initial?.answers.sensitivity ?? 'NOT_SURE';
+  late Set<String> _concerns = {...?widget.initial?.answers.concerns};
+  late Set<String> _goals = {...?widget.initial?.answers.goals};
+  bool _saving = false;
+
+  Future<void> _save() async {
+    setState(() => _saving = true);
+    try {
+      await widget.api.saveAssessment(
+        SkinAssessmentAnswers(
+          skinType: _skinType,
+          sensitivity: _sensitivity,
+          concerns: _concerns.toList(),
+          goals: _goals.toList(),
+        ),
+      );
+      if (mounted) Navigator.pop(context, true);
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Skin profile')),
+    body: ListView(
+      padding: const EdgeInsets.all(20),
+      children: [
+        Text(
+          'Tell us about your skin',
+          style: Theme.of(context).textTheme.headlineSmall,
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'These answers shape your recommendations. You can update them at any time.',
+        ),
+        const SizedBox(height: 24),
+        _SingleChoice(
+          title: 'Skin type',
+          values: const {
+            'NORMAL': 'Normal',
+            'DRY': 'Dry',
+            'OILY': 'Oily',
+            'COMBINATION': 'Combination',
+            'NOT_SURE': 'Not sure',
+          },
+          selected: _skinType,
+          onChanged: (value) => setState(() => _skinType = value),
+        ),
+        _SingleChoice(
+          title: 'Sensitivity',
+          values: const {
+            'LOW': 'Low',
+            'MEDIUM': 'Medium',
+            'HIGH': 'High',
+            'NOT_SURE': 'Not sure',
+          },
+          selected: _sensitivity,
+          onChanged: (value) => setState(() => _sensitivity = value),
+        ),
+        _MultiChoice(
+          title: 'Concerns (up to 7)',
+          values: const {
+            'ACNE': 'Acne',
+            'REDNESS': 'Redness',
+            'DARK_SPOTS': 'Dark spots',
+            'PORES': 'Pores',
+            'DRYNESS': 'Dryness',
+            'OILINESS': 'Oiliness',
+            'TEXTURE': 'Texture',
+            'NONE': 'None',
+          },
+          selected: _concerns,
+          max: 7,
+          noneKey: 'NONE',
+          onChanged: (values) => setState(() => _concerns = values),
+        ),
+        _MultiChoice(
+          title: 'Goals (up to 6)',
+          values: const {
+            'REDUCE_ACNE': 'Reduce acne',
+            'EVEN_TONE': 'Even tone',
+            'HYDRATION': 'Hydration',
+            'OIL_CONTROL': 'Oil control',
+            'ANTI_AGING': 'Anti-aging',
+            'MAINTAIN_HEALTHY_SKIN': 'Maintain healthy skin',
+          },
+          selected: _goals,
+          max: 6,
+          onChanged: (values) => setState(() => _goals = values),
+        ),
+        const SizedBox(height: 20),
+        FilledButton(
+          onPressed: _saving ? null : _save,
+          child: _saving
+              ? const CircularProgressIndicator()
+              : const Text('Save skin profile'),
+        ),
+      ],
+    ),
+  );
+}
+
+class _SkinHubData {
+  const _SkinHubData({
+    required this.assessment,
+    required this.history,
+    required this.recommendations,
+  });
+  final SkinAssessment? assessment;
+  final SkinAnalysisHistory history;
+  final List<ProductRecommendation> recommendations;
+}
+
+class _AssessmentCard extends StatelessWidget {
+  const _AssessmentCard({required this.assessment, required this.onEdit});
+  final SkinAssessment? assessment;
+  final VoidCallback onEdit;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      color: AppTheme.sand,
+      borderRadius: BorderRadius.circular(14),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          assessment == null ? 'Set up your profile' : 'Profile saved',
+          style: Theme.of(context).textTheme.titleMedium,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          assessment == null
+              ? 'Share your skin type, sensitivity, concerns and goals.'
+              : '${assessment!.answers.skinType.replaceAll('_', ' ')} · ${assessment!.answers.concerns.join(', ')}',
+        ),
+        const SizedBox(height: 12),
+        OutlinedButton(
+          onPressed: onEdit,
+          child: Text(
+            assessment == null ? 'Start assessment' : 'Edit assessment',
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _AnalysisTile extends StatelessWidget {
+  const _AnalysisTile(this.item);
+  final SkinAnalysisSession item;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ListTile(
+      leading: Icon(
+        item.status == 'SUCCEEDED'
+            ? Icons.check_circle_outline
+            : Icons.hourglass_top_outlined,
+        color: AppTheme.deepRose,
+      ),
+      title: Text(item.status.toLowerCase().replaceAll('_', ' ')),
+      subtitle: Text(item.createdAt ?? 'Analysis session'),
+      trailing: item.errorCode == null ? null : const Icon(Icons.error_outline),
+    ),
+  );
+}
+
+class _RecommendationCard extends StatelessWidget {
+  const _RecommendationCard(this.item, {required this.onTap});
+  final ProductRecommendation item;
+  final VoidCallback onTap;
+  @override
+  Widget build(BuildContext context) => Card(
+    child: ListTile(
+      onTap: onTap,
+      leading: item.imageUrl == null
+          ? const Icon(Icons.spa_outlined)
+          : Image.network(
+              item.imageUrl!,
+              width: 48,
+              height: 48,
+              fit: BoxFit.cover,
+              errorBuilder: (_, _, _) => const Icon(Icons.spa_outlined),
+            ),
+      title: Text(item.name),
+      subtitle: Text(
+        [item.brand, ...item.reasons].whereType<String>().join(' · '),
+      ),
+    ),
+  );
+}
+
+class _EmptyCard extends StatelessWidget {
+  const _EmptyCard({required this.message});
+  final String message;
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.all(18),
+    decoration: BoxDecoration(
+      border: Border.all(color: AppTheme.softBorder),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(message),
+  );
+}
+
+class _LoadError extends StatelessWidget {
+  const _LoadError({required this.onRetry});
+  final VoidCallback onRetry;
+  @override
+  Widget build(BuildContext context) => Center(
+    child: FilledButton.icon(
+      onPressed: onRetry,
+      icon: const Icon(Icons.refresh),
+      label: const Text('Try again'),
+    ),
+  );
+}
+
+class _SingleChoice extends StatelessWidget {
+  const _SingleChoice({
+    required this.title,
+    required this.values,
+    required this.selected,
+    required this.onChanged,
+  });
+  final String title;
+  final Map<String, String> values;
+  final String selected;
+  final ValueChanged<String> onChanged;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 22),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: values.entries
+              .map(
+                (entry) => ChoiceChip(
+                  label: Text(entry.value),
+                  selected: entry.key == selected,
+                  onSelected: (_) => onChanged(entry.key),
+                ),
+              )
+              .toList(),
+        ),
+      ],
+    ),
+  );
+}
+
+class _MultiChoice extends StatelessWidget {
+  const _MultiChoice({
+    required this.title,
+    required this.values,
+    required this.selected,
+    required this.max,
+    required this.onChanged,
+    this.noneKey,
+  });
+  final String title;
+  final Map<String, String> values;
+  final Set<String> selected;
+  final int max;
+  final ValueChanged<Set<String>> onChanged;
+  final String? noneKey;
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 22),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(title, style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 8),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: values.entries.map((entry) {
+            final isSelected = selected.contains(entry.key);
+            return FilterChip(
+              label: Text(entry.value),
+              selected: isSelected,
+              onSelected: (value) {
+                final next = {...selected};
+                if (value) {
+                  if (entry.key == noneKey) {
+                    next
+                      ..clear()
+                      ..add(entry.key);
+                  } else {
+                    next.remove(noneKey);
+                    if (next.length >= max) return;
+                    next.add(entry.key);
+                  }
+                } else {
+                  next.remove(entry.key);
+                }
+                onChanged(next);
+              },
+            );
+          }).toList(),
+        ),
+      ],
+    ),
+  );
+}

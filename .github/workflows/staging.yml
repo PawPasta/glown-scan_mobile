@@ -107,6 +107,32 @@ jobs:
             --release \
             --build-number "$BUILD_NUMBER"
 
+      - name: Verify staging APK certificate
+        env:
+          ANDROID_STAGING_CERT_SHA256: ${{ secrets.ANDROID_STAGING_CERT_SHA256 }}
+        run: |
+          if [ -z "$ANDROID_STAGING_CERT_SHA256" ]; then
+            echo "::error::ANDROID_STAGING_CERT_SHA256 secret is required."
+            exit 1
+          fi
+
+          apksigner_path=$(find "$ANDROID_HOME/build-tools" -name apksigner -type f | sort -V | tail -n 1)
+          if [ -z "$apksigner_path" ]; then
+            echo "::error::Could not find apksigner."
+            exit 1
+          fi
+
+          apk_path=build/app/outputs/flutter-apk/app-release.apk
+          "$apksigner_path" verify --print-certs "$apk_path"
+          actual=$("$apksigner_path" verify --print-certs "$apk_path" | awk -F': ' '/certificate SHA-256 digest:/ {print $2; exit}')
+          expected=$(printf '%s' "$ANDROID_STAGING_CERT_SHA256" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')
+          actual=$(printf '%s' "$actual" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')
+
+          if [ -z "$actual" ] || [ "$actual" != "$expected" ]; then
+            echo "::error::APK certificate SHA-256 does not match the configured staging certificate."
+            exit 1
+          fi
+
       - name: Prepare APK
         id: apk
         env:

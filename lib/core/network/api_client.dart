@@ -10,6 +10,16 @@ import 'api_endpoints.dart';
 
 enum ApiMethod { get, post, put, patch, delete }
 
+enum ApiErrorKind {
+  network,
+  timeout,
+  unauthorized,
+  validation,
+  server,
+  invalidResponse,
+  unknown,
+}
+
 extension on ApiMethod {
   String get value => name.toUpperCase();
 }
@@ -27,10 +37,15 @@ class ApiResponse {
 }
 
 class ApiException implements Exception {
-  const ApiException(this.message, {this.statusCode});
+  const ApiException(
+    this.message, {
+    this.statusCode,
+    this.kind = ApiErrorKind.unknown,
+  });
 
   final String message;
   final int? statusCode;
+  final ApiErrorKind kind;
 
   @override
   String toString() =>
@@ -44,6 +59,8 @@ class ApiClient {
     this.accessTokenProvider,
     AuthSessionStore? sessionStorage,
     this.refreshTimeout = const Duration(seconds: 15),
+    this.getTimeout = const Duration(seconds: 12),
+    this.writeTimeout = const Duration(seconds: 20),
   }) : _httpClient = httpClient ?? http.Client(),
        _baseUri = baseUri ?? AppConfig.apiBaseUri,
        _sessionStorage = sessionStorage ?? AuthSessionStorage();
@@ -53,12 +70,15 @@ class ApiClient {
   final Future<String?> Function()? accessTokenProvider;
   final AuthSessionStore _sessionStorage;
   final Duration refreshTimeout;
+  final Duration getTimeout;
+  final Duration writeTimeout;
   static Future<String>? _refreshingAccessToken;
 
   Future<ApiResponse> request(
     ApiMethod method,
     String endpoint, {
     Map<String, Object?>? json,
+    Map<String, String>? extraHeaders,
     String? accessToken,
     bool requiresAuth = false,
   }) async {
@@ -69,6 +89,7 @@ class ApiClient {
         method,
         endpoint,
         json: json,
+        extraHeaders: extraHeaders,
         accessToken: token,
         requiresAuth: requiresAuth,
       );
@@ -85,6 +106,7 @@ class ApiClient {
           method,
           endpoint,
           json: json,
+          extraHeaders: extraHeaders,
           accessToken: refreshedToken,
           requiresAuth: true,
         );
@@ -101,6 +123,7 @@ class ApiClient {
     ApiMethod method,
     String endpoint, {
     Map<String, Object?>? json,
+    Map<String, String>? extraHeaders,
     String? accessToken,
     bool requiresAuth = false,
   }) async {
@@ -117,6 +140,7 @@ class ApiClient {
     if (token != null && token.isNotEmpty) {
       headers['authorization'] = 'Bearer $token';
     }
+    if (extraHeaders != null) headers.addAll(extraHeaders);
 
     final uri = _baseUri.resolve(
       endpoint.startsWith('/') ? endpoint.substring(1) : endpoint,
@@ -126,8 +150,28 @@ class ApiClient {
       request.body = jsonEncode(json);
     }
 
-    final streamedResponse = await _httpClient.send(request);
-    final response = await http.Response.fromStream(streamedResponse);
+    final timeout = endpoint == ApiEndpoints.refresh
+        ? refreshTimeout
+        : method == ApiMethod.get
+        ? getTimeout
+        : writeTimeout;
+    late http.StreamedResponse streamedResponse;
+    late http.Response response;
+    try {
+      streamedResponse = await _httpClient.send(request).timeout(timeout);
+      response = await http.Response.fromStream(streamedResponse)
+          .timeout(timeout);
+    } on TimeoutException {
+      throw ApiException(
+        'The request timed out. Check your connection and try again.',
+        kind: ApiErrorKind.timeout,
+      );
+    } on http.ClientException {
+      throw const ApiException(
+        'Network unavailable. Check your connection and try again.',
+        kind: ApiErrorKind.network,
+      );
+    }
     final Map<String, dynamic> envelope;
     try {
       final decoded = jsonDecode(utf8.decode(response.bodyBytes));
@@ -139,6 +183,7 @@ class ApiClient {
       throw ApiException(
         'The server returned an invalid response: ${error.message}',
         statusCode: response.statusCode,
+        kind: ApiErrorKind.invalidResponse,
       );
     }
 
@@ -150,20 +195,26 @@ class ApiClient {
         response.statusCode >= 300 ||
         status < 200 ||
         status >= 300) {
-      throw ApiException(responseMessage, statusCode: status);
-    }
-    if (!envelope.containsKey('data')) {
       throw ApiException(
-        'The server response is missing the data field.',
-        statusCode: response.statusCode,
+        responseMessage,
+        statusCode: status,
+        kind: _errorKindForStatus(status),
       );
     }
-
     return ApiResponse(
       status: status,
       message: responseMessage,
+      // A few valid mutation endpoints (for example DELETE /devices/me)
+      // intentionally omit data from their success envelope.
       data: envelope['data'],
     );
+  }
+
+  ApiErrorKind _errorKindForStatus(int statusCode) {
+    if (statusCode == 401) return ApiErrorKind.unauthorized;
+    if (statusCode >= 400 && statusCode < 500) return ApiErrorKind.validation;
+    if (statusCode >= 500) return ApiErrorKind.server;
+    return ApiErrorKind.unknown;
   }
 
   Future<String?> _readAccessToken() =>
@@ -246,8 +297,15 @@ class ApiClient {
         statusCode: 401,
       );
     } on ApiException catch (error) {
-      if (error.statusCode == 401) {
+      if (error.statusCode == 401 || error.kind == ApiErrorKind.timeout) {
         await _expireSession();
+        if (error.kind == ApiErrorKind.timeout) {
+          throw const ApiException(
+            'Session refresh timed out. Please log in again.',
+            statusCode: 401,
+            kind: ApiErrorKind.timeout,
+          );
+        }
       }
       rethrow;
     } finally {
@@ -262,11 +320,13 @@ class ApiClient {
 
   Future<ApiResponse> get(
     String endpoint, {
+    Map<String, String>? extraHeaders,
     String? accessToken,
     bool requiresAuth = false,
   }) => request(
     ApiMethod.get,
     endpoint,
+    extraHeaders: extraHeaders,
     accessToken: accessToken,
     requiresAuth: requiresAuth,
   );
@@ -274,12 +334,14 @@ class ApiClient {
   Future<ApiResponse> post(
     String endpoint, {
     Map<String, Object?>? json,
+    Map<String, String>? extraHeaders,
     String? accessToken,
     bool requiresAuth = false,
   }) => request(
     ApiMethod.post,
     endpoint,
     json: json,
+    extraHeaders: extraHeaders,
     accessToken: accessToken,
     requiresAuth: requiresAuth,
   );
@@ -287,12 +349,14 @@ class ApiClient {
   Future<ApiResponse> put(
     String endpoint, {
     Map<String, Object?>? json,
+    Map<String, String>? extraHeaders,
     String? accessToken,
     bool requiresAuth = false,
   }) => request(
     ApiMethod.put,
     endpoint,
     json: json,
+    extraHeaders: extraHeaders,
     accessToken: accessToken,
     requiresAuth: requiresAuth,
   );
@@ -300,12 +364,14 @@ class ApiClient {
   Future<ApiResponse> patch(
     String endpoint, {
     Map<String, Object?>? json,
+    Map<String, String>? extraHeaders,
     String? accessToken,
     bool requiresAuth = false,
   }) => request(
     ApiMethod.patch,
     endpoint,
     json: json,
+    extraHeaders: extraHeaders,
     accessToken: accessToken,
     requiresAuth: requiresAuth,
   );
@@ -313,12 +379,14 @@ class ApiClient {
   Future<ApiResponse> delete(
     String endpoint, {
     Map<String, Object?>? json,
+    Map<String, String>? extraHeaders,
     String? accessToken,
     bool requiresAuth = false,
   }) => request(
     ApiMethod.delete,
     endpoint,
     json: json,
+    extraHeaders: extraHeaders,
     accessToken: accessToken,
     requiresAuth: requiresAuth,
   );

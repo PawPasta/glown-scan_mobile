@@ -2,6 +2,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 
+import 'dart:async';
+
 import '../../../firebase_options.dart';
 
 @pragma('vm:entry-point')
@@ -16,6 +18,7 @@ class PushNotificationService {
 
   String? _fcmToken;
   Future<String?>? _initialization;
+  StreamSubscription<String>? _tokenRefreshSubscription;
 
   String? get fcmToken => _fcmToken;
 
@@ -33,15 +36,23 @@ class PushNotificationService {
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
 
     final messaging = FirebaseMessaging.instance;
-    await messaging.requestPermission(alert: true, badge: true, sound: true);
-    await messaging.setForegroundNotificationPresentationOptions(
-      alert: true,
-      badge: true,
-      sound: true,
-    );
+    try {
+      await messaging.requestPermission(alert: true, badge: true, sound: true);
+      await messaging.setForegroundNotificationPresentationOptions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+    } on FirebaseException {
+      // Notification display permission is not required to obtain an FCM token.
+    }
 
-    _fcmToken = await messaging.getToken();
-    messaging.onTokenRefresh.listen((token) {
+    try {
+      _fcmToken = await messaging.getToken();
+    } on FirebaseException {
+      _fcmToken = null;
+    }
+    _tokenRefreshSubscription ??= messaging.onTokenRefresh.listen((token) {
       _fcmToken = token;
     });
 
@@ -53,6 +64,12 @@ class PushNotificationService {
         defaultTargetPlatform != TargetPlatform.iOS) {
       return null;
     }
-    return _fcmToken ?? FirebaseMessaging.instance.getToken();
+    return _fcmToken ?? await initialize();
+  }
+
+  Future<void> dispose() async {
+    await _tokenRefreshSubscription?.cancel();
+    _tokenRefreshSubscription = null;
+    _initialization = null;
   }
 }

@@ -4,7 +4,7 @@ import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugPrint, defaultTargetPlatform;
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show DeviceOrientation;
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
@@ -195,11 +195,26 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
   Future<void> _analyze() async {
     final image = _capturedImage;
     if (image == null) return;
+    final consent = await _requestConsent();
+    if (!consent || !mounted) return;
     setState(() => _stage = _CameraStage.analyzing);
     try {
-      final result = await _skinAnalysisApi.analyze(image);
-      final json = const JsonEncoder.withIndent('  ').convert(result);
-      debugPrint('GlowScan skin-analysis response:\n$json');
+      var result = await _skinAnalysisApi.analyze(image);
+      for (var attempt = 0; !result.isComplete && attempt < 30; attempt++) {
+        await Future<void>.delayed(const Duration(seconds: 2));
+        result = await _skinAnalysisApi.getStatus(result.id);
+      }
+      if (!result.isComplete) {
+        throw const ApiException(
+          'Analysis is still running. Check your analysis history in a moment.',
+        );
+      }
+      if (result.status == 'FAILED') {
+        throw ApiException(
+          'GlowScan AI could not complete this analysis${result.errorCode == null ? '.' : ': ${result.errorCode}'}',
+        );
+      }
+      final json = const JsonEncoder.withIndent('  ').convert(result.result);
       if (!mounted) return;
       setState(() {
         _analysisJson = json;
@@ -211,6 +226,28 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       _setError('GlowScan AI could not analyze this photo: $error');
     }
   }
+
+  Future<bool> _requestConsent() async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Use your face photo?'),
+          content: const Text(
+            'GlowScan will upload this face photo securely to create your skin analysis. It is not medical advice.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('I agree'),
+            ),
+          ],
+        ),
+      ) ??
+      false;
 
   void _setError(String message) {
     if (!mounted) {
