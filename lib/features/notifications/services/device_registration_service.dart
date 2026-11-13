@@ -1,3 +1,8 @@
+import 'dart:async';
+import 'dart:ui';
+
+import 'package:package_info_plus/package_info_plus.dart';
+
 import '../../../core/storage/installation_storage.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
@@ -8,10 +13,39 @@ class DeviceRegistration {
     required this.installationId,
     required this.fcmToken,
     this.platform = 'ANDROID',
+    this.appVersion,
+    this.locale,
+    this.timezone,
   });
   final String installationId;
   final String fcmToken;
   final String platform;
+  final String? appVersion;
+  final String? locale;
+  final String? timezone;
+}
+
+class DeviceMetadata {
+  const DeviceMetadata({this.appVersion, this.locale, this.timezone});
+
+  final String? appVersion;
+  final String? locale;
+  final String? timezone;
+
+  static Future<DeviceMetadata> read() async {
+    String? appVersion;
+    try {
+      final info = await PackageInfo.fromPlatform();
+      appVersion = info.version.isEmpty ? null : info.version;
+    } catch (_) {
+      // Registration still works when package metadata is unavailable.
+    }
+    return DeviceMetadata(
+      appVersion: appVersion,
+      locale: PlatformDispatcher.instance.locale.toLanguageTag(),
+      timezone: DateTime.now().timeZoneName,
+    );
+  }
 }
 
 abstract interface class DeviceApi {
@@ -48,6 +82,10 @@ class DeviceApiClient implements DeviceApi {
         'installationId': registration.installationId,
         'platform': registration.platform,
         'fcmToken': registration.fcmToken,
+        if (registration.appVersion != null)
+          'appVersion': registration.appVersion,
+        if (registration.locale != null) 'locale': registration.locale,
+        if (registration.timezone != null) 'timezone': registration.timezone,
       },
     );
   }
@@ -68,16 +106,25 @@ class DeviceRegistrationService {
   DeviceRegistrationService({
     required this.deviceApi,
     required this.installationStore,
+    this.metadataReader = DeviceMetadata.read,
   });
 
   final DeviceApi deviceApi;
   final InstallationStore installationStore;
+  final Future<DeviceMetadata> Function() metadataReader;
 
   Future<void> syncFcmToken(String? token) async {
     if (token == null || token.isEmpty) return;
     final installationId = await installationStore.readOrCreateInstallationId();
+    final metadata = await metadataReader();
     await deviceApi.register(
-      DeviceRegistration(installationId: installationId, fcmToken: token),
+      DeviceRegistration(
+        installationId: installationId,
+        fcmToken: token,
+        appVersion: metadata.appVersion,
+        locale: metadata.locale,
+        timezone: metadata.timezone,
+      ),
     );
   }
 
@@ -93,5 +140,39 @@ class DeviceRegistrationService {
   Future<void> unregister() async {
     final installationId = await installationStore.readOrCreateInstallationId();
     await deviceApi.unregister(installationId: installationId);
+  }
+}
+
+/// Keeps one FCM-refresh listener for the signed-in app process.
+class DeviceSyncCoordinator {
+  DeviceSyncCoordinator._();
+
+  static final instance = DeviceSyncCoordinator._();
+  DeviceRegistrationService? _service;
+  StreamSubscription<String>? _tokenSubscription;
+
+  Future<void> start(DeviceRegistrationService service) async {
+    _service ??= service;
+    await _service!.syncCurrentPushToken();
+    _tokenSubscription ??= PushNotificationService.instance.onTokenRefresh
+        .listen((token) => unawaited(_syncRefreshedToken(token)));
+  }
+
+  Future<void> _syncRefreshedToken(String token) async {
+    try {
+      await _service?.syncFcmToken(token);
+    } on ApiException {
+      // A later token refresh or app launch retries the best-effort sync.
+    }
+  }
+
+  Future<void> stop() async {
+    await _tokenSubscription?.cancel();
+    _tokenSubscription = null;
+    final deviceApi = _service?.deviceApi;
+    if (deviceApi is DeviceApiClient) {
+      deviceApi.close();
+    }
+    _service = null;
   }
 }

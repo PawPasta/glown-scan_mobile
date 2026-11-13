@@ -168,11 +168,12 @@ class _AppStartupGateState extends State<AppStartupGate> {
   Future<void> _syncDeviceAfterRestore() async {
     try {
       final api = DeviceApiClient();
-      await DeviceRegistrationService(
-        deviceApi: api,
-        installationStore: InstallationStorage(),
-      ).syncCurrentPushToken();
-      api.close();
+      await DeviceSyncCoordinator.instance.start(
+        DeviceRegistrationService(
+          deviceApi: api,
+          installationStore: InstallationStorage(),
+        ),
+      );
     } catch (_) {
       // Device registration is best-effort and cannot prevent app startup.
     }

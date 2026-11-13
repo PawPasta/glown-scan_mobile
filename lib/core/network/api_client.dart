@@ -41,11 +41,13 @@ class ApiException implements Exception {
     this.message, {
     this.statusCode,
     this.kind = ApiErrorKind.unknown,
+    this.code,
   });
 
   final String message;
   final int? statusCode;
   final ApiErrorKind kind;
+  final String? code;
 
   @override
   String toString() =>
@@ -189,6 +191,7 @@ class ApiClient {
 
     final message = envelope['message'];
     final responseMessage = message is String ? message : 'The request failed.';
+    final errorCode = envelope['code'] ?? envelope['errorCode'];
     final envelopeStatus = envelope['status'];
     final status = envelopeStatus is int ? envelopeStatus : response.statusCode;
     if (response.statusCode < 200 ||
@@ -199,6 +202,7 @@ class ApiClient {
         responseMessage,
         statusCode: status,
         kind: _errorKindForStatus(status),
+        code: errorCode is String ? errorCode : null,
       );
     }
     return ApiResponse(
@@ -297,6 +301,19 @@ class ApiClient {
         statusCode: 401,
       );
     } on ApiException catch (error) {
+      if (error.statusCode == 409 &&
+          error.code == 'REFRESH_TOKEN_ALREADY_ROTATED') {
+        final latestAccessToken = await _readAccessToken();
+        final latestRefreshToken = await _sessionStorage.readRefreshToken();
+        if (latestAccessToken != null &&
+            latestAccessToken.isNotEmpty &&
+            latestAccessToken != currentAccessToken &&
+            latestRefreshToken != null &&
+            latestRefreshToken.isNotEmpty &&
+            latestRefreshToken != refreshToken) {
+          return latestAccessToken;
+        }
+      }
       if (error.statusCode == 401 || error.kind == ApiErrorKind.timeout) {
         await _expireSession();
         if (error.kind == ApiErrorKind.timeout) {

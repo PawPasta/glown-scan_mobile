@@ -155,8 +155,7 @@ class _LoginPageState extends State<LoginPage> {
         deviceApi: api,
         installationStore: InstallationStorage(),
       );
-      await service.syncCurrentPushToken();
-      api.close();
+      await DeviceSyncCoordinator.instance.start(service);
     } catch (_) {
       // Device registration is best-effort and must never affect login.
     }
