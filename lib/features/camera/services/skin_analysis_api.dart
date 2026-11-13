@@ -17,12 +17,14 @@ class SkinAnalysisUploadIntent {
     required this.signature,
     required this.apiKey,
     required this.cloudName,
+    required this.consentVersion,
   });
   final String publicId;
   final int timestamp;
   final String signature;
   final String apiKey;
   final String cloudName;
+  final String consentVersion;
 
   factory SkinAnalysisUploadIntent.fromJson(Object? value) {
     if (value is! Map<String, dynamic> ||
@@ -30,7 +32,8 @@ class SkinAnalysisUploadIntent {
         value['timestamp'] is! int ||
         value['signature'] is! String ||
         value['apiKey'] is! String ||
-        value['cloudName'] is! String) {
+        value['cloudName'] is! String ||
+        value['consentVersion'] is! String) {
       throw const ApiException(
         'The skin-analysis upload intent is invalid.',
         kind: ApiErrorKind.invalidResponse,
@@ -42,6 +45,7 @@ class SkinAnalysisUploadIntent {
       signature: value['signature'] as String,
       apiKey: value['apiKey'] as String,
       cloudName: value['cloudName'] as String,
+      consentVersion: value['consentVersion'] as String,
     );
   }
 }
@@ -59,12 +63,20 @@ class SkinAnalysisApi {
 
   Future<SkinAnalysisSession> analyze(
     XFile image, {
+    required bool consentAccepted,
     String? idempotencyKey,
   }) async {
+    if (!consentAccepted) {
+      throw const ApiException(
+        'Consent is required before uploading a face photo.',
+        kind: ApiErrorKind.validation,
+      );
+    }
     final intent = SkinAnalysisUploadIntent.fromJson(
       (await _apiClient.post(
         ApiEndpoints.skinAnalysisUploadIntent,
         requiresAuth: true,
+        json: const {'consentAccepted': true},
       )).data,
     );
     final bytes = await image.readAsBytes();

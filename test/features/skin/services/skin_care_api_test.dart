@@ -131,6 +131,49 @@ void main() {
       throwsA(isA<ApiException>()),
     );
   });
+
+  test('identifies a premium-limited analysis result', () {
+    final session = SkinAnalysisSession.fromJson({
+      'id': 'scan-1',
+      'status': 'SUCCEEDED',
+      'result': {
+        'quality': {'accepted': true, 'issues': []},
+        'summary': {'overallSkinScore': 82},
+        'premiumRequired': true,
+      },
+    });
+
+    expect(session.requiresPremium, isTrue);
+  });
+
+  test('preserves the backend premium-required error code', () async {
+    final api = SkinCareApi(
+      apiClient: ApiClient(
+        baseUri: Uri.parse('https://api.glownscan.xyz/'),
+        accessTokenProvider: () async => 'token',
+        httpClient: MockClient(
+          (_) async => _json({
+            'status': 403,
+            'message': 'Premium required',
+            'code': 'PREMIUM_REQUIRED',
+            'data': null,
+          }, 403),
+        ),
+      ),
+    );
+    addTearDown(api.close);
+
+    await expectLater(
+      api.getRecommendations(),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.code,
+          'code',
+          'PREMIUM_REQUIRED',
+        ),
+      ),
+    );
+  });
 }
 
 http.Response _json(Map<String, Object?> body, int code) => http.Response.bytes(

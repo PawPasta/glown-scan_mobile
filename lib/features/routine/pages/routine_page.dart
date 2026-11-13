@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../premium/widgets/premium_required_view.dart';
 import '../services/routine_api.dart';
 
 class RoutinePage extends StatefulWidget {
@@ -72,6 +73,14 @@ class _RoutinePageState extends State<RoutinePage> {
         return const Center(child: CircularProgressIndicator());
       }
       if (snapshot.hasError) {
+        if (_isPremiumRequired(snapshot.error)) {
+          return const Center(
+            child: SingleChildScrollView(
+              padding: EdgeInsets.all(20),
+              child: PremiumRequiredView(feature: 'your personalised routine'),
+            ),
+          );
+        }
         return Center(
           child: FilledButton(
             onPressed: () => setState(() => _data = _load()),
@@ -133,6 +142,9 @@ class _RoutinePageState extends State<RoutinePage> {
       );
     },
   );
+
+  bool _isPremiumRequired(Object? error) =>
+      error is ApiException && error.code == 'PREMIUM_REQUIRED';
 }
 
 class _RoutineData {

@@ -70,6 +70,9 @@ class SkinAnalysisSession {
 
   bool get isComplete => status == 'SUCCEEDED' || status == 'FAILED';
 
+  bool get requiresPremium =>
+      result is Map && (result as Map)['premiumRequired'] == true;
+
   factory SkinAnalysisSession.fromJson(Object? value) {
     if (value is! Map<String, dynamic>) {
       throw const ApiException(

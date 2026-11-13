@@ -53,7 +53,7 @@ class ProductApi {
   Future<ProductDetail> get(String id) async => ProductDetail.fromJson(
     (await _client.get(
       '${ApiEndpoints.products}/$id',
-      requiresAuth: true,
+      requiresAuth: false,
     )).data,
   );
   void close() => _client.close();

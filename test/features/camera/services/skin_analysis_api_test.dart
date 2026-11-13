@@ -24,6 +24,7 @@ void main() {
         accessTokenProvider: () async => 'access-token',
         httpClient: MockClient((request) async {
           if (request.url.path == ApiEndpoints.skinAnalysisUploadIntent) {
+            expect(jsonDecode(request.body), {'consentAccepted': true});
             return _json({
               'status': 201,
               'message': 'Created',
@@ -33,6 +34,7 @@ void main() {
                 'signature': 'intent-signature',
                 'apiKey': 'key',
                 'cloudName': 'cloud',
+                'consentVersion': '2026-11',
               },
             }, 201);
           }
@@ -81,6 +83,7 @@ void main() {
 
       final queued = await api.analyze(
         XFile(photo.path),
+        consentAccepted: true,
         idempotencyKey: 'retry-safe-key',
       );
       final completed = await api.getStatus(queued.id);
@@ -90,6 +93,29 @@ void main() {
       expect(completed.result, {'quality': 'good'});
     },
   );
+
+  test('requires consent before requesting an upload intent', () async {
+    final api = SkinAnalysisApi(
+      apiClient: ApiClient(
+        baseUri: Uri.parse('https://api.glownscan.xyz/'),
+        httpClient: MockClient(
+          (_) async => throw StateError('No request expected'),
+        ),
+      ),
+    );
+    addTearDown(api.close);
+
+    await expectLater(
+      api.analyze(XFile('face.jpg'), consentAccepted: false),
+      throwsA(
+        isA<ApiException>().having(
+          (error) => error.kind,
+          'kind',
+          ApiErrorKind.validation,
+        ),
+      ),
+    );
+  });
 }
 
 http.Response _json(Map<String, Object?> body, int statusCode) =>

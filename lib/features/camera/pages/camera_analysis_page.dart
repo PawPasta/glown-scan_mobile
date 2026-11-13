@@ -11,6 +11,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../premium/widgets/premium_required_view.dart';
 import '../services/skin_analysis_api.dart';
 
 class CameraAnalysisPage extends StatefulWidget {
@@ -46,6 +47,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
   XFile? _capturedImage;
   Uint8List? _capturedBytes;
   String? _analysisJson;
+  bool _analysisRequiresPremium = false;
 
   @override
   void initState() {
@@ -181,6 +183,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       _capturedImage = null;
       _capturedBytes = null;
       _analysisJson = null;
+      _analysisRequiresPremium = false;
       _errorMessage = null;
       _stage = _CameraStage.scanning;
       _stableFaceFrames = 0;
@@ -199,7 +202,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     if (!consent || !mounted) return;
     setState(() => _stage = _CameraStage.analyzing);
     try {
-      var result = await _skinAnalysisApi.analyze(image);
+      var result = await _skinAnalysisApi.analyze(image, consentAccepted: true);
       for (var attempt = 0; !result.isComplete && attempt < 30; attempt++) {
         await Future<void>.delayed(const Duration(seconds: 2));
         result = await _skinAnalysisApi.getStatus(result.id);
@@ -218,6 +221,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       if (!mounted) return;
       setState(() {
         _analysisJson = json;
+        _analysisRequiresPremium = result.requiresPremium;
         _stage = _CameraStage.result;
       });
     } on ApiException catch (error) {
@@ -233,7 +237,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
         builder: (context) => AlertDialog(
           title: const Text('Use your face photo?'),
           content: const Text(
-            'GlowScan will upload this face photo securely to create your skin analysis. It is not medical advice.',
+            'GlowScan will store this face photo with Cloudinary and send it to Gemini to create your skin analysis. It is not medical advice.',
           ),
           actions: [
             TextButton(
@@ -306,6 +310,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     _CameraStage.analyzing => const _AnalyzingView(),
     _CameraStage.result => _ResultView(
       json: _analysisJson ?? 'null',
+      requiresPremium: _analysisRequiresPremium,
       onNewScan: _retake,
     ),
     _CameraStage.error => _ErrorView(
@@ -481,18 +486,34 @@ class _AnalyzingView extends StatelessWidget {
 }
 
 class _ResultView extends StatelessWidget {
-  const _ResultView({required this.json, required this.onNewScan});
+  const _ResultView({
+    required this.json,
+    required this.requiresPremium,
+    required this.onNewScan,
+  });
   final String json;
+  final bool requiresPremium;
   final VoidCallback onNewScan;
   @override
   Widget build(BuildContext context) => ListView(
     padding: const EdgeInsets.all(20),
     children: [
       Text(
-        'Analysis response',
+        requiresPremium ? 'Your skin summary' : 'Analysis response',
         style: Theme.of(context).textTheme.headlineSmall,
       ),
       const SizedBox(height: 8),
+      if (requiresPremium) ...[
+        const Text(
+          'Your quality result and overall summary are ready. Upgrade to access detailed metrics and observations.',
+        ),
+        const SizedBox(height: 16),
+        const PremiumRequiredView(
+          feature: 'detailed skin insights',
+          compact: true,
+        ),
+        const SizedBox(height: 24),
+      ],
       const Text('Raw JSON returned by the API:'),
       const SizedBox(height: 16),
       SelectableText(
