@@ -199,7 +199,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     if (!consent || !mounted) return;
     setState(() => _stage = _CameraStage.analyzing);
     try {
-      var result = await _skinAnalysisApi.analyze(image);
+      var result = await _skinAnalysisApi.analyze(image, consentAccepted: true);
       for (var attempt = 0; !result.isComplete && attempt < 30; attempt++) {
         await Future<void>.delayed(const Duration(seconds: 2));
         result = await _skinAnalysisApi.getStatus(result.id);
@@ -233,7 +233,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
         builder: (context) => AlertDialog(
           title: const Text('Use your face photo?'),
           content: const Text(
-            'GlowScan will upload this face photo securely to create your skin analysis. It is not medical advice.',
+            'GlowScan will store this face photo with Cloudinary and send it to Gemini to create your skin analysis. It is not medical advice.',
           ),
           actions: [
             TextButton(

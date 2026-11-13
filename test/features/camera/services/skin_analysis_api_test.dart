@@ -24,6 +24,7 @@ void main() {
         accessTokenProvider: () async => 'access-token',
         httpClient: MockClient((request) async {
           if (request.url.path == ApiEndpoints.skinAnalysisUploadIntent) {
+            expect(jsonDecode(request.body), {'consentAccepted': true});
             return _json({
               'status': 201,
               'message': 'Created',
@@ -33,6 +34,7 @@ void main() {
                 'signature': 'intent-signature',
                 'apiKey': 'key',
                 'cloudName': 'cloud',
+                'consentVersion': 'skin-analysis-consent-v1',
               },
             }, 201);
           }
@@ -81,6 +83,7 @@ void main() {
 
       final queued = await api.analyze(
         XFile(photo.path),
+        consentAccepted: true,
         idempotencyKey: 'retry-safe-key',
       );
       final completed = await api.getStatus(queued.id);
@@ -88,6 +91,16 @@ void main() {
       expect(queued.status, 'QUEUED');
       expect(completed.status, 'SUCCEEDED');
       expect(completed.result, {'quality': 'good'});
+      await expectLater(
+        api.analyze(XFile(photo.path), consentAccepted: false),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.kind,
+            'kind',
+            ApiErrorKind.validation,
+          ),
+        ),
+      );
     },
   );
 }
