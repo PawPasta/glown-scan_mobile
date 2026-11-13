@@ -13,6 +13,27 @@ Success envelope:
 Errors must include a stable `code` field. Ownership always comes from the
 bearer token; requests must never accept a `userId`.
 
+## Implemented Premium entitlement contract
+
+The mobile app treats Premium as an entitlement returned and enforced by the
+backend, never as a client-supplied role. Free users can submit an analysis
+and see its quality outcome and overall summary. A successful limited result
+must set `premiumRequired` to `true` and contain only the following data:
+
+```json
+{
+  "quality": { "accepted": true, "issues": [] },
+  "summary": { "overallSkinScore": 82, "confidence": 0.9, "notes": [] },
+  "premiumRequired": true
+}
+```
+
+Detailed analysis data is available only to active Premium users and admins.
+For routines and `/recommendations/me`, a user without entitlement must
+receive `403` with code `PREMIUM_REQUIRED`. The app shows an access explanation
+instead of treating this as a network failure. Payment and subscription
+management remain website-owned.
+
 ## P1 — Analysis recovery and privacy
 
 | Method | Route | Purpose |

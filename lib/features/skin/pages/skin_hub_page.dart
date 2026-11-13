@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_theme.dart';
+import '../../premium/widgets/premium_required_view.dart';
 import '../services/skin_care_api.dart';
 import 'product_detail_page.dart';
 
@@ -17,11 +18,26 @@ class _SkinHubPageState extends State<SkinHubPage> {
   late final SkinCareApiContract _api = widget.api ?? SkinCareApi();
   late Future<_SkinHubData> _data = _load();
 
-  Future<_SkinHubData> _load() async => _SkinHubData(
-    assessment: await _api.getAssessment(),
-    history: await _api.getHistory(limit: 10),
-    recommendations: await _api.getRecommendations(limit: 10),
-  );
+  Future<_SkinHubData> _load() async {
+    final assessment = await _api.getAssessment();
+    final history = await _api.getHistory(limit: 10);
+    try {
+      final recommendations = await _api.getRecommendations(limit: 10);
+      return _SkinHubData(
+        assessment: assessment,
+        history: history,
+        recommendations: recommendations,
+      );
+    } on ApiException catch (error) {
+      if (error.code != 'PREMIUM_REQUIRED') rethrow;
+      return _SkinHubData(
+        assessment: assessment,
+        history: history,
+        recommendations: const [],
+        recommendationsRequirePremium: true,
+      );
+    }
+  }
 
   @override
   void dispose() {
@@ -89,7 +105,12 @@ class _SkinHubPageState extends State<SkinHubPage> {
               style: Theme.of(context).textTheme.titleLarge,
             ),
             const SizedBox(height: 10),
-            if (data.recommendations.isEmpty)
+            if (data.recommendationsRequirePremium)
+              const PremiumRequiredView(
+                feature: 'personalised product recommendations',
+                compact: true,
+              )
+            else if (data.recommendations.isEmpty)
               const _EmptyCard(
                 message: 'Complete your skin profile or an analysis to see product matches.',
               )
@@ -234,10 +255,12 @@ class _SkinHubData {
     required this.assessment,
     required this.history,
     required this.recommendations,
+    this.recommendationsRequirePremium = false,
   });
   final SkinAssessment? assessment;
   final SkinAnalysisHistory history;
   final List<ProductRecommendation> recommendations;
+  final bool recommendationsRequirePremium;
 }
 
 class _AssessmentCard extends StatelessWidget {

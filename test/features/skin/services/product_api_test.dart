@@ -15,6 +15,7 @@ void main() {
         accessTokenProvider: () async => 'token',
         httpClient: MockClient((request) async {
           expect(request.url.path, '${ApiEndpoints.products}/product-1');
+          expect(request.headers.containsKey('authorization'), isFalse);
           return http.Response.bytes(
             utf8.encode(
               jsonEncode({
