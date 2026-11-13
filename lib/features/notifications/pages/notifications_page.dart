@@ -29,6 +29,22 @@ class _NotificationsPageState extends State<NotificationsPage> {
     if (mounted) setState(() => _data = _load());
   }
 
+  NotificationPreferences _copyPreferences(
+    NotificationPreferences current, {
+    bool? routineReminders,
+    bool? analysisUpdates,
+    bool? productRecommendations,
+    bool? marketing,
+  }) => NotificationPreferences(
+    routineReminders: routineReminders ?? current.routineReminders,
+    analysisUpdates: analysisUpdates ?? current.analysisUpdates,
+    productRecommendations:
+        productRecommendations ?? current.productRecommendations,
+    marketing: marketing ?? current.marketing,
+    reminderTime: current.reminderTime,
+    timezone: current.timezone,
+  );
+
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(title: const Text('Notifications')),
@@ -55,31 +71,35 @@ class _NotificationsPageState extends State<NotificationsPage> {
               title: const Text('Routine reminders'),
               value: data.preferences.routineReminders,
               onChanged: (v) => _save(
-                NotificationPreferences(
-                  routineReminders: v,
-                  analysisUpdates: data.preferences.analysisUpdates,
-                  productRecommendations:
-                      data.preferences.productRecommendations,
-                  marketing: data.preferences.marketing,
-                  reminderTime: data.preferences.reminderTime,
-                  timezone: data.preferences.timezone,
-                ),
+                _copyPreferences(data.preferences, routineReminders: v),
               ),
             ),
             SwitchListTile(
               title: const Text('Analysis updates'),
               value: data.preferences.analysisUpdates,
+              onChanged: (v) =>
+                  _save(_copyPreferences(data.preferences, analysisUpdates: v)),
+            ),
+            SwitchListTile(
+              title: const Text('Product recommendations'),
+              value: data.preferences.productRecommendations,
               onChanged: (v) => _save(
-                NotificationPreferences(
-                  routineReminders: data.preferences.routineReminders,
-                  analysisUpdates: v,
-                  productRecommendations:
-                      data.preferences.productRecommendations,
-                  marketing: data.preferences.marketing,
-                  reminderTime: data.preferences.reminderTime,
-                  timezone: data.preferences.timezone,
-                ),
+                _copyPreferences(data.preferences, productRecommendations: v),
               ),
+            ),
+            SwitchListTile(
+              title: const Text('Marketing updates'),
+              value: data.preferences.marketing,
+              onChanged: (v) =>
+                  _save(_copyPreferences(data.preferences, marketing: v)),
+            ),
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Routine reminder time'),
+              subtitle: Text(
+                data.preferences.reminderTime ?? 'Not configured by server',
+              ),
+              trailing: Text(data.preferences.timezone ?? ''),
             ),
             const SizedBox(height: 18),
             Text('Inbox', style: Theme.of(context).textTheme.titleLarge),

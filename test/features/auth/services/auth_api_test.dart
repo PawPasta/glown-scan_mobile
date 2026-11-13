@@ -330,6 +330,51 @@ void main() {
     expect(requestStatus.sessionExpirationVersion, expirationVersion + 1);
   });
 
+  test('uses locally rotated credentials after refresh conflict', () async {
+    final storage = _MemoryAuthSessionStore()
+      ..accessToken = 'expired-access'
+      ..refreshToken = 'old-refresh';
+    final apiClient = ApiClient(
+      baseUri: Uri.parse(baseUri),
+      sessionStorage: storage,
+      httpClient: MockClient((request) async {
+        if (request.url.path == ApiEndpoints.profile) {
+          if (request.headers['authorization'] == 'Bearer expired-access') {
+            return _jsonResponse({
+              'status': 401,
+              'message': 'Expired',
+              'data': null,
+            }, 401);
+          }
+          expect(request.headers['authorization'], 'Bearer winning-access');
+          return _jsonResponse({
+            'status': 200,
+            'message': 'Success',
+            'data': {'profile': true},
+          }, 200);
+        }
+        storage
+          ..accessToken = 'winning-access'
+          ..refreshToken = 'winning-refresh';
+        return _jsonResponse({
+          'status': 409,
+          'message': 'Refresh token already rotated',
+          'code': 'REFRESH_TOKEN_ALREADY_ROTATED',
+          'data': null,
+        }, 409);
+      }),
+    );
+    addTearDown(apiClient.close);
+
+    final response = await apiClient.get(
+      ApiEndpoints.profile,
+      requiresAuth: true,
+    );
+
+    expect(response.data, {'profile': true});
+    expect(storage.accessToken, 'winning-access');
+  });
+
   test('REST client supports GET, POST, PUT, PATCH, and DELETE', () async {
     const methods = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
     var requestIndex = 0;

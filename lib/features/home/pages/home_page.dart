@@ -31,6 +31,7 @@ class _HomePageState extends State<HomePage> {
     String? logoutWarning;
     final apiClient = ApiClient();
     try {
+      await DeviceSyncCoordinator.instance.stop();
       final deviceApi = DeviceApiClient(apiClient: apiClient);
       await DeviceRegistrationService(
         deviceApi: deviceApi,

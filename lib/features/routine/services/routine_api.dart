@@ -16,6 +16,15 @@ class RoutineStep {
   final String title;
   final String instruction;
   final bool optional;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'period': period,
+    'position': position,
+    'title': title,
+    'instruction': instruction,
+    'optional': optional,
+  };
   factory RoutineStep.fromJson(Object? value) {
     if (value is! Map<String, dynamic> ||
         value['id'] is! String ||
@@ -103,6 +112,24 @@ class RoutineToday {
   }
 }
 
+class RoutineCheckInHistory {
+  const RoutineCheckInHistory({required this.items});
+
+  final List<RoutineToday> items;
+
+  factory RoutineCheckInHistory.fromJson(Object? value) {
+    if (value is! Map<String, dynamic> || value['items'] is! List) {
+      throw const ApiException(
+        'The routine history response is invalid.',
+        kind: ApiErrorKind.invalidResponse,
+      );
+    }
+    return RoutineCheckInHistory(
+      items: (value['items'] as List).map(RoutineToday.fromJson).toList(),
+    );
+  }
+}
+
 abstract interface class RoutineApiContract {
   Future<SkinRoutine?> getCurrent();
   Future<SkinRoutine> createDraft({
@@ -113,11 +140,21 @@ abstract interface class RoutineApiContract {
     required String idempotencyKey,
   });
   Future<SkinRoutine> transition(String routineId, String action);
+  Future<SkinRoutine> updateRoutine({
+    required String routineId,
+    String? title,
+    List<RoutineStep>? morningSteps,
+    List<RoutineStep>? eveningSteps,
+  });
   Future<RoutineToday?> getToday();
   Future<RoutineToday> saveToday({
     required String date,
     required List<String> completedStepIds,
     String? note,
+  });
+  Future<RoutineCheckInHistory> getHistory({
+    required String from,
+    required String to,
   });
 }
 
@@ -163,6 +200,24 @@ class RoutineApi implements RoutineApiContract {
           requiresAuth: true,
         )).data,
       );
+
+  @override
+  Future<SkinRoutine> updateRoutine({
+    required String routineId,
+    String? title,
+    List<RoutineStep>? morningSteps,
+    List<RoutineStep>? eveningSteps,
+  }) async => SkinRoutine.fromJson(
+    (await _client.patch(
+      '${ApiEndpoints.routines}/$routineId',
+      requiresAuth: true,
+      json: {
+        'title': ?title,
+        'morningSteps': ?morningSteps?.map((step) => step.toJson()).toList(),
+        'eveningSteps': ?eveningSteps?.map((step) => step.toJson()).toList(),
+      },
+    )).data,
+  );
   @override
   Future<RoutineToday?> getToday() async {
     final data = (await _client.get(
@@ -185,6 +240,17 @@ class RoutineApi implements RoutineApiContract {
         'completedStepIds': completedStepIds,
         if (note != null && note.isNotEmpty) 'note': note,
       },
+    )).data,
+  );
+
+  @override
+  Future<RoutineCheckInHistory> getHistory({
+    required String from,
+    required String to,
+  }) async => RoutineCheckInHistory.fromJson(
+    (await _client.get(
+      '${ApiEndpoints.routineCurrent}/check-ins?from=$from&to=$to',
+      requiresAuth: true,
     )).data,
   );
   void close() => _client.close();

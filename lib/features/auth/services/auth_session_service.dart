@@ -44,6 +44,19 @@ class AuthSessionService {
       );
       return true;
     } on ApiException catch (error) {
+      if (error.statusCode == 409 &&
+          error.code == 'REFRESH_TOKEN_ALREADY_ROTATED') {
+        final latestAccessToken = await _sessionStorage.readAccessToken();
+        final latestRefreshToken = await _sessionStorage.readRefreshToken();
+        if (latestAccessToken != null &&
+            latestAccessToken.isNotEmpty &&
+            latestAccessToken != accessToken &&
+            latestRefreshToken != null &&
+            latestRefreshToken.isNotEmpty &&
+            latestRefreshToken != refreshToken) {
+          return true;
+        }
+      }
       if (error.statusCode == 401) {
         await _sessionStorage.clear();
         return false;
