@@ -48,6 +48,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
   Uint8List? _capturedBytes;
   String? _analysisJson;
   bool _analysisRequiresPremium = false;
+  StreamSubscription<void>? _analysisStatusSubscription;
 
   @override
   void initState() {
@@ -62,6 +63,8 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     final detector = _faceDetector;
     if (detector != null) unawaited(detector.close());
     _ownedSkinAnalysisApi?.close();
+    final statusSubscription = _analysisStatusSubscription;
+    if (statusSubscription != null) unawaited(statusSubscription.cancel());
     super.dispose();
   }
 
@@ -203,9 +206,22 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     setState(() => _stage = _CameraStage.analyzing);
     try {
       var result = await _skinAnalysisApi.analyze(image, consentAccepted: true);
-      for (var attempt = 0; !result.isComplete && attempt < 30; attempt++) {
-        await Future<void>.delayed(const Duration(seconds: 2));
-        result = await _skinAnalysisApi.getStatus(result.id);
+      final updates = StreamController<void>.broadcast();
+      _analysisStatusSubscription = _skinAnalysisApi
+          .watchStatus(result.id)
+          .listen((_) => updates.add(null));
+      try {
+        for (var attempt = 0; !result.isComplete && attempt < 30; attempt++) {
+          await Future.any([
+            Future<void>.delayed(const Duration(seconds: 2)),
+            updates.stream.first,
+          ]);
+          result = await _skinAnalysisApi.getStatus(result.id);
+        }
+      } finally {
+        await _analysisStatusSubscription?.cancel();
+        _analysisStatusSubscription = null;
+        await updates.close();
       }
       if (!result.isComplete) {
         throw const ApiException(

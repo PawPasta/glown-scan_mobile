@@ -9,6 +9,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
 import '../../skin/services/skin_care_api.dart';
+import 'skin_analysis_live_updates.dart';
 
 class SkinAnalysisUploadIntent {
   const SkinAnalysisUploadIntent({
@@ -54,11 +55,14 @@ class SkinAnalysisApi {
   SkinAnalysisApi({
     ApiClient? apiClient,
     http.Client? cloudinaryClient,
+    SkinAnalysisLiveUpdatesContract? liveUpdates,
     this.uploadTimeout = const Duration(seconds: 60),
   }) : _apiClient = apiClient ?? ApiClient(),
-       _cloudinaryClient = cloudinaryClient ?? http.Client();
+       _cloudinaryClient = cloudinaryClient ?? http.Client(),
+       _liveUpdates = liveUpdates ?? SkinAnalysisLiveUpdates();
   final ApiClient _apiClient;
   final http.Client _cloudinaryClient;
+  final SkinAnalysisLiveUpdatesContract _liveUpdates;
   final Duration uploadTimeout;
 
   Future<SkinAnalysisSession> analyze(
@@ -170,6 +174,9 @@ class SkinAnalysisApi {
         )).data,
       );
 
+  Stream<SkinAnalysisLiveEvent> watchStatus(String sessionId) =>
+      _liveUpdates.watch(sessionId);
+
   Map<String, dynamic> _decodeCloudinaryResponse(http.Response response) {
     try {
       final decoded = jsonDecode(utf8.decode(response.bodyBytes));
@@ -196,5 +203,6 @@ class SkinAnalysisApi {
   void close() {
     _apiClient.close();
     _cloudinaryClient.close();
+    _liveUpdates.close();
   }
 }
