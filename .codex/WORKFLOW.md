@@ -2,7 +2,10 @@
 
 ## 1. Mandatory Rules
 
-These instructions apply to **every code change** in this repository, including bug fixes, refactoring, features, tests, configuration changes, and CI updates.
+These instructions apply to every Android-focused change in this repository,
+including Flutter code, Android configuration, tests, shared dependencies, and
+CI changes that distribute Android builds. Read `.codex/AGENTS.md` alongside
+this workflow for the current platform scope.
 
 **Core principle: No unverified code may be committed or pushed.**
 
@@ -11,7 +14,7 @@ Codex MUST:
 - Inspect relevant existing code, tests, and repository conventions before making changes.
 - Make the smallest reasonable change that satisfies the request.
 - Write or update focused tests alongside production changes.
-- Run all required quality gates in the specified order.
+- Run all required Android-first quality gates in the specified order.
 - Verify Git changes before creating a commit.
 - Never bypass failed checks or report unexecuted checks as passing.
 - Preserve unrelated user changes.
@@ -56,7 +59,7 @@ Testing requirements:
 
 For changes that do not require new tests, explain why in the final report.
 
-## 4. Required Quality Gates
+## 4. Required Android-First Quality Gates
 
 After implementation, Codex MUST execute the following commands from the repository root, **sequentially and in this exact order**:
 
@@ -64,7 +67,7 @@ After implementation, Codex MUST execute the following commands from the reposit
 dart format --output=none --set-exit-if-changed lib test
 flutter analyze --fatal-infos
 flutter test --coverage
-flutter build web --release
+flutter build apk --debug
 ```
 
 ### Execution requirements
@@ -77,7 +80,14 @@ flutter build web --release
 6. Never substitute a partial test run for the required full test suite.
 7. Never claim a gate passed if it was skipped, interrupted, or not executed.
 
-All four gates MUST pass for the final implementation before a commit or push is allowed.
+All four Android-first gates MUST pass for the final implementation before a
+commit or push is allowed.
+
+### Non-Android platforms
+
+Do not run or require builds/tests for `ios/`, `macos/`, `web/`, `windows/`, or
+`linux/` during Android-focused work. Run the relevant platform validation only
+when the task explicitly targets that platform or changes its files.
 
 ### Environment failures
 
@@ -207,7 +217,7 @@ Describe added or updated tests and any relevant coverage limitations.
 | Dart format | PASS / FAIL / BLOCKED / NOT RUN |
 | Flutter analyze | PASS / FAIL / BLOCKED / NOT RUN |
 | Flutter tests | PASS / FAIL / BLOCKED / NOT RUN |
-| Flutter web release build | PASS / FAIL / BLOCKED / NOT RUN |
+| Flutter Android debug build | PASS / FAIL / BLOCKED / NOT RUN |
 | Git diff check | PASS / FAIL / NOT RUN |
 
 Report actual execution results only.
@@ -230,7 +240,7 @@ A code task is ready for delivery only when:
 - [ ] Dart formatting passes.
 - [ ] Flutter static analysis passes.
 - [ ] Flutter tests pass.
-- [ ] Flutter web release build passes.
+- [ ] Flutter Android debug build passes.
 - [ ] Git diff verification passes.
 - [ ] Unrelated user changes remain untouched.
 - [ ] Final results are reported accurately.
