@@ -211,7 +211,11 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
           .watchStatus(result.id)
           .listen((_) => updates.add(null));
       try {
-        for (var attempt = 0; !result.isComplete && attempt < 30; attempt++) {
+        for (
+          var attempt = 0;
+          !result.isComplete && mounted && attempt < 30;
+          attempt++
+        ) {
           await Future.any([
             Future<void>.delayed(const Duration(seconds: 2)),
             updates.stream.first,
@@ -228,6 +232,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
           'Analysis is still running. Check your analysis history in a moment.',
         );
       }
+      if (!mounted) return;
       if (result.status == 'FAILED') {
         throw ApiException(
           'GlowScan AI could not complete this analysis${result.errorCode == null ? '.' : ': ${result.errorCode}'}',
