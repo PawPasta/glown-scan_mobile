@@ -27,6 +27,7 @@ void main() {
             }, 200);
           }
           expect(request.url.path, ApiEndpoints.notifications);
+          expect(request.url.queryParameters, {'page': '2', 'limit': '10'});
           return _json({
             'status': 200,
             'message': 'OK',
@@ -36,6 +37,9 @@ void main() {
                   'id': 'n1',
                   'title': 'Ready',
                   'body': 'Your analysis is ready',
+                  'type': 'ANALYSIS_READY',
+                  'payload': {'sessionId': 'scan-1'},
+                  'createdAt': '2026-11-18T12:00:00.000Z',
                   'readAt': null,
                 },
               ],
@@ -47,7 +51,12 @@ void main() {
     );
     addTearDown(api.close);
     expect((await api.getPreferences()).routineReminders, isTrue);
-    expect((await api.getNotifications()).single.read, isFalse);
+    final inbox = await api.getNotifications(page: 2, limit: 10);
+    expect(inbox.items.single.read, isFalse);
+    expect(inbox.items.single.type, 'ANALYSIS_READY');
+    expect(inbox.items.single.payload, {'sessionId': 'scan-1'});
+    expect(inbox.total, 1);
+    expect(inbox.hasMore, isFalse);
   });
 }
 

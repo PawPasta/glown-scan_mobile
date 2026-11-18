@@ -84,15 +84,33 @@ void main() {
               },
             }, 200);
           }
+          if (request.url.path == '${ApiEndpoints.skinAnalysis}/scan-1') {
+            return _json({
+              'status': 200,
+              'message': 'Success',
+              'data': {
+                'id': 'scan-1',
+                'status': 'SUCCEEDED',
+                'result': {'summary': 'Clear skin'},
+              },
+            }, 200);
+          }
           expect(request.url.path, ApiEndpoints.recommendationsMe);
           return _json({
             'status': 200,
             'message': 'Success',
             'data': {
+              'generatedAt': '2026-11-18T12:00:00.000Z',
+              'source': {
+                'assessmentAvailable': true,
+                'analysisAvailable': true,
+                'concernCodes': ['ACNE'],
+              },
               'items': [
                 {
                   'id': 'p1',
                   'name': 'Moisturizer',
+                  'matchedConcerns': ['ACNE'],
                   'reasons': ['Matches hydration'],
                 },
               ],
@@ -106,7 +124,14 @@ void main() {
       (await api.getHistory(page: 2, limit: 10)).items.single.id,
       'scan-1',
     );
-    expect((await api.getRecommendations()).single.name, 'Moisturizer');
+    expect((await api.getAnalysisSession('scan-1')).result, {
+      'summary': 'Clear skin',
+    });
+    final recommendations = await api.getRecommendations();
+    expect(recommendations.items.single.name, 'Moisturizer');
+    expect(recommendations.items.single.matchedConcerns, ['ACNE']);
+    expect(recommendations.source.analysisAvailable, isTrue);
+    expect(recommendations.generatedAt, '2026-11-18T12:00:00.000Z');
   });
 
   test('rejects NONE with another concern before making a request', () async {

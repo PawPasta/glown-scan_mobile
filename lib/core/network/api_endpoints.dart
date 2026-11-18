@@ -2,6 +2,7 @@ class ApiEndpoints {
   ApiEndpoints._();
 
   static const register = '/auth/register';
+  static const verifyEmail = '/auth/verify-email';
   static const loginMobile = '/auth/mobile/login';
   static const resendEmailVerification = '/auth/verify-email/resend';
   static const checkEmailVerification = '/auth/verify-email/check';
@@ -17,6 +18,7 @@ class ApiEndpoints {
   static const avatarUploadIntent = '/auth/profile/avatar/upload-intent';
   static const avatarConfirm = '/auth/profile/avatar/confirm';
   static const skinAnalysisUploadIntent = '/skin-analysis/upload-intent';
+  static const skinAnalysisConsentInfo = '/skin-analysis/consent-info';
   static const skinAnalysisAnalyze = '/skin-analysis/analyze';
   static const skinAssessmentCurrent = '/skin-assessments/current';
   static const skinAnalysis = '/skin-analysis';

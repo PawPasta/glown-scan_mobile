@@ -11,6 +11,39 @@ import '../../../core/network/api_endpoints.dart';
 import '../../skin/services/skin_care_api.dart';
 import 'skin_analysis_live_updates.dart';
 
+class SkinAnalysisConsentInfo {
+  const SkinAnalysisConsentInfo({
+    required this.consentVersion,
+    required this.aiProvider,
+    required this.providerName,
+    required this.disclosureText,
+  });
+
+  final String consentVersion;
+  final String aiProvider;
+  final String providerName;
+  final String disclosureText;
+
+  factory SkinAnalysisConsentInfo.fromJson(Object? value) {
+    if (value is! Map<String, dynamic> ||
+        value['consentVersion'] is! String ||
+        value['aiProvider'] is! String ||
+        value['providerName'] is! String ||
+        value['disclosureText'] is! String) {
+      throw const ApiException(
+        'The skin-analysis consent information is invalid.',
+        kind: ApiErrorKind.invalidResponse,
+      );
+    }
+    return SkinAnalysisConsentInfo(
+      consentVersion: value['consentVersion'] as String,
+      aiProvider: value['aiProvider'] as String,
+      providerName: value['providerName'] as String,
+      disclosureText: value['disclosureText'] as String,
+    );
+  }
+}
+
 class SkinAnalysisUploadIntent {
   const SkinAnalysisUploadIntent({
     required this.publicId,
@@ -19,6 +52,7 @@ class SkinAnalysisUploadIntent {
     required this.apiKey,
     required this.cloudName,
     required this.consentVersion,
+    required this.aiProvider,
   });
   final String publicId;
   final int timestamp;
@@ -26,6 +60,7 @@ class SkinAnalysisUploadIntent {
   final String apiKey;
   final String cloudName;
   final String consentVersion;
+  final String aiProvider;
 
   factory SkinAnalysisUploadIntent.fromJson(Object? value) {
     if (value is! Map<String, dynamic> ||
@@ -34,7 +69,8 @@ class SkinAnalysisUploadIntent {
         value['signature'] is! String ||
         value['apiKey'] is! String ||
         value['cloudName'] is! String ||
-        value['consentVersion'] is! String) {
+        value['consentVersion'] is! String ||
+        value['aiProvider'] is! String) {
       throw const ApiException(
         'The skin-analysis upload intent is invalid.',
         kind: ApiErrorKind.invalidResponse,
@@ -47,6 +83,7 @@ class SkinAnalysisUploadIntent {
       apiKey: value['apiKey'] as String,
       cloudName: value['cloudName'] as String,
       consentVersion: value['consentVersion'] as String,
+      aiProvider: value['aiProvider'] as String,
     );
   }
 }
@@ -65,9 +102,18 @@ class SkinAnalysisApi {
   final SkinAnalysisLiveUpdatesContract _liveUpdates;
   final Duration uploadTimeout;
 
+  Future<SkinAnalysisConsentInfo> getConsentInfo() async =>
+      SkinAnalysisConsentInfo.fromJson(
+        (await _apiClient.get(
+          ApiEndpoints.skinAnalysisConsentInfo,
+          requiresAuth: true,
+        )).data,
+      );
+
   Future<SkinAnalysisSession> analyze(
     XFile image, {
     required bool consentAccepted,
+    required SkinAnalysisConsentInfo consentInfo,
     String? idempotencyKey,
   }) async {
     if (!consentAccepted) {
@@ -83,6 +129,13 @@ class SkinAnalysisApi {
         json: const {'consentAccepted': true},
       )).data,
     );
+    if (intent.consentVersion != consentInfo.consentVersion ||
+        intent.aiProvider != consentInfo.aiProvider) {
+      throw const ApiException(
+        'The analysis provider or consent notice changed. Review the updated notice and try again.',
+        kind: ApiErrorKind.validation,
+      );
+    }
     final bytes = await image.readAsBytes();
     if (bytes.isEmpty) {
       throw const ApiException(
@@ -154,7 +207,7 @@ class SkinAnalysisApi {
         ApiEndpoints.skinAnalysisAnalyze,
         requiresAuth: true,
         extraHeaders: {
-          'Idempotency-Key': idempotencyKey ?? _newIdempotencyKey(),
+          'Idempotency-Key': idempotencyKey ?? newIdempotencyKey(),
         },
         json: {
           'publicId': publicId,
@@ -191,7 +244,7 @@ class SkinAnalysisApi {
     }
   }
 
-  String _newIdempotencyKey() {
+  static String newIdempotencyKey() {
     final random = Random.secure();
     String segment(int length) => List.generate(
       length,

@@ -19,14 +19,12 @@ class LoginPage extends StatefulWidget {
   const LoginPage({
     this.authApi,
     this.sessionStorage,
-    this.fcmTokenProvider,
     this.googleIdTokenProvider,
     super.key,
   });
 
   final AuthApiContract? authApi;
   final AuthSessionStore? sessionStorage;
-  final Future<String?> Function()? fcmTokenProvider;
   final Future<String?> Function()? googleIdTokenProvider;
 
   @override
@@ -57,7 +55,6 @@ class _LoginPageState extends State<LoginPage> {
       final response = await _authApi.loginMobile(
         email: _emailController.text.trim(),
         password: _passwordController.text,
-        fcmToken: null,
       );
       final tokens = _readTokens(response.data);
       await _sessionStorage.saveTokens(
@@ -118,10 +115,7 @@ class _LoginPageState extends State<LoginPage> {
         throw const ApiException('Could not get a Firebase ID token.');
       }
 
-      final response = await _authApi.firebaseLogin(
-        idToken: idToken,
-        fcmToken: null,
-      );
+      final response = await _authApi.firebaseLogin(idToken: idToken);
       final tokens = _readTokens(response.data);
       await _sessionStorage.saveTokens(
         accessToken: tokens.accessToken,

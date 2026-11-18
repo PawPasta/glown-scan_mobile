@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 
 import '../../../core/network/api_client.dart';
@@ -22,11 +24,13 @@ class _SkinHubPageState extends State<SkinHubPage> {
     final assessment = await _api.getAssessment();
     final history = await _api.getHistory(limit: 10);
     try {
-      final recommendations = await _api.getRecommendations(limit: 10);
+      final recommendationResponse = await _api.getRecommendations(limit: 10);
       return _SkinHubData(
         assessment: assessment,
         history: history,
-        recommendations: recommendations,
+        recommendations: recommendationResponse.items,
+        recommendationSource: recommendationResponse.source,
+        recommendationsGeneratedAt: recommendationResponse.generatedAt,
       );
     } on ApiException catch (error) {
       if (error.code != 'PREMIUM_REQUIRED') rethrow;
@@ -53,7 +57,75 @@ class _SkinHubPageState extends State<SkinHubPage> {
         builder: (_) => SkinAssessmentPage(api: _api, initial: initial),
       ),
     );
-    if (saved == true && mounted) setState(() => _data = _load());
+    if (saved == true && mounted) {
+      setState(() {
+        _data = _load();
+      });
+    }
+  }
+
+  String _recommendationSourceLabel(RecommendationSource source) {
+    if (source.assessmentAvailable && source.analysisAvailable) {
+      return 'Matched using your skin profile and latest analysis.';
+    }
+    if (source.assessmentAvailable) return 'Matched using your skin profile.';
+    if (source.analysisAvailable) return 'Matched using your latest analysis.';
+    return 'General product matches.';
+  }
+
+  Future<void> _openAnalysisDetails(SkinAnalysisSession item) async {
+    try {
+      final session = await _api.getAnalysisSession(item.id);
+      if (!mounted) return;
+      final resultJson = session.result == null
+          ? null
+          : const JsonEncoder.withIndent('  ').convert(session.result);
+      await showDialog<void>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: Text('Analysis ${session.status.toLowerCase()}'),
+          content: SizedBox(
+            width: 480,
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (session.createdAt != null)
+                    Text('Created: ${session.createdAt}'),
+                  if (session.completedAt != null)
+                    Text('Completed: ${session.completedAt}'),
+                  if (session.errorCode != null)
+                    Text('Error: ${session.errorCode}'),
+                  if (session.requiresPremium) ...[
+                    const SizedBox(height: 12),
+                    const PremiumRequiredView(
+                      feature: 'detailed analysis results',
+                      compact: true,
+                    ),
+                  ],
+                  if (resultJson != null) ...[
+                    const SizedBox(height: 12),
+                    SelectableText(resultJson),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('Close'),
+            ),
+          ],
+        ),
+      );
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
   }
 
   @override
@@ -64,11 +136,19 @@ class _SkinHubPageState extends State<SkinHubPage> {
         return const Center(child: CircularProgressIndicator());
       }
       if (snapshot.hasError) {
-        return _LoadError(onRetry: () => setState(() => _data = _load()));
+        return _LoadError(
+          onRetry: () => setState(() {
+            _data = _load();
+          }),
+        );
       }
       final data = snapshot.requireData;
       return RefreshIndicator(
-        onRefresh: () async => setState(() => _data = _load()),
+        onRefresh: () async {
+          setState(() {
+            _data = _load();
+          });
+        },
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 32),
           children: [
@@ -98,7 +178,12 @@ class _SkinHubPageState extends State<SkinHubPage> {
                     'Your completed and in-progress analyses will appear here.',
               )
             else
-              ...data.history.items.map(_AnalysisTile.new),
+              ...data.history.items.map(
+                (item) => _AnalysisTile(
+                  item,
+                  onTap: () => _openAnalysisDetails(item),
+                ),
+              ),
             const SizedBox(height: 24),
             Text(
               'Recommended for you',
@@ -114,7 +199,17 @@ class _SkinHubPageState extends State<SkinHubPage> {
               const _EmptyCard(
                 message: 'Complete your skin profile or an analysis to see product matches.',
               )
-            else
+            else ...[
+              if (data.recommendationSource != null)
+                Text(
+                  _recommendationSourceLabel(data.recommendationSource!),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              if (data.recommendationsGeneratedAt != null)
+                Text(
+                  'Updated ${data.recommendationsGeneratedAt}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               ...data.recommendations.map(
                 (item) => _RecommendationCard(
                   item,
@@ -125,6 +220,7 @@ class _SkinHubPageState extends State<SkinHubPage> {
                   ),
                 ),
               ),
+            ],
           ],
         ),
       );
@@ -256,11 +352,15 @@ class _SkinHubData {
     required this.history,
     required this.recommendations,
     this.recommendationsRequirePremium = false,
+    this.recommendationSource,
+    this.recommendationsGeneratedAt,
   });
   final SkinAssessment? assessment;
   final SkinAnalysisHistory history;
   final List<ProductRecommendation> recommendations;
   final bool recommendationsRequirePremium;
+  final RecommendationSource? recommendationSource;
+  final String? recommendationsGeneratedAt;
 }
 
 class _AssessmentCard extends StatelessWidget {
@@ -300,11 +400,13 @@ class _AssessmentCard extends StatelessWidget {
 }
 
 class _AnalysisTile extends StatelessWidget {
-  const _AnalysisTile(this.item);
+  const _AnalysisTile(this.item, {required this.onTap});
   final SkinAnalysisSession item;
+  final VoidCallback onTap;
   @override
   Widget build(BuildContext context) => Card(
     child: ListTile(
+      onTap: onTap,
       leading: Icon(
         item.status == 'SUCCEEDED'
             ? Icons.check_circle_outline
@@ -337,7 +439,13 @@ class _RecommendationCard extends StatelessWidget {
             ),
       title: Text(item.name),
       subtitle: Text(
-        [item.brand, ...item.reasons].whereType<String>().join(' · '),
+        [
+          item.brand,
+          if (item.matchedConcerns.isNotEmpty)
+            'Matches ${item.matchedConcerns.join(', ')}',
+          ...item.reasons,
+          item.disclaimer,
+        ].whereType<String>().join(' · '),
       ),
     ),
   );

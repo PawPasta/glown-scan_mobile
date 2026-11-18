@@ -13,39 +13,40 @@ import 'package:http/testing.dart';
 void main() {
   const baseUri = 'https://api.glownscan.xyz/';
 
-  test('mobile login defaults to Android and sends FCM token', () async {
-    final api = AuthApi(
-      apiClient: ApiClient(
-        baseUri: Uri.parse(baseUri),
-        httpClient: MockClient((request) async {
-          expect(request.method, 'POST');
-          expect(request.url, Uri.parse('${baseUri}auth/mobile/login'));
-          expect(jsonDecode(request.body), {
-            'email': 'user@example.com',
-            'password': 'Password123!',
-            'platform': 'ANDROID',
-            'fcmToken': 'fcm-token',
-          });
-          return _jsonResponse({
-            'status': 200,
-            'message': 'Logged in successfully',
-            'data': {'accessToken': 'access-token'},
-          }, 200);
-        }),
-      ),
-    );
-    addTearDown(api.close);
+  test(
+    'mobile login defaults to Android without waiting for an FCM token',
+    () async {
+      final api = AuthApi(
+        apiClient: ApiClient(
+          baseUri: Uri.parse(baseUri),
+          httpClient: MockClient((request) async {
+            expect(request.method, 'POST');
+            expect(request.url, Uri.parse('${baseUri}auth/mobile/login'));
+            expect(jsonDecode(request.body), {
+              'email': 'user@example.com',
+              'password': 'Password123!',
+              'platform': 'ANDROID',
+            });
+            return _jsonResponse({
+              'status': 200,
+              'message': 'Logged in successfully',
+              'data': {'accessToken': 'access-token'},
+            }, 200);
+          }),
+        ),
+      );
+      addTearDown(api.close);
 
-    final response = await api.loginMobile(
-      email: 'user@example.com',
-      password: 'Password123!',
-      fcmToken: 'fcm-token',
-    );
+      final response = await api.loginMobile(
+        email: 'user@example.com',
+        password: 'Password123!',
+      );
 
-    expect(response.status, 200);
-    expect(response.message, 'Logged in successfully');
-    expect(response.data, {'accessToken': 'access-token'});
-  });
+      expect(response.status, 200);
+      expect(response.message, 'Logged in successfully');
+      expect(response.data, {'accessToken': 'access-token'});
+    },
+  );
 
   test('refresh sends both session tokens to the refresh endpoint', () async {
     final api = AuthApi(
@@ -81,40 +82,39 @@ void main() {
     });
   });
 
-  test('Firebase login sends the Google ID token and FCM token', () async {
-    final api = AuthApi(
-      apiClient: ApiClient(
-        baseUri: Uri.parse(baseUri),
-        httpClient: MockClient((request) async {
-          expect(request.method, 'POST');
-          expect(request.url.path, ApiEndpoints.firebaseLogin);
-          expect(jsonDecode(request.body), {
-            'idToken': 'google-id-token',
-            'platform': 'ANDROID',
-            'fcmToken': 'fcm-token',
-          });
-          return _jsonResponse({
-            'status': 200,
-            'message': 'Logged in successfully',
-            'data': {
-              'accessToken': 'backend-access',
-              'refreshToken': 'backend-refresh',
-            },
-          }, 200);
-        }),
-      ),
-    );
-    addTearDown(api.close);
+  test(
+    'Firebase login sends the Google ID token without an FCM token',
+    () async {
+      final api = AuthApi(
+        apiClient: ApiClient(
+          baseUri: Uri.parse(baseUri),
+          httpClient: MockClient((request) async {
+            expect(request.method, 'POST');
+            expect(request.url.path, ApiEndpoints.firebaseLogin);
+            expect(jsonDecode(request.body), {
+              'idToken': 'google-id-token',
+              'platform': 'ANDROID',
+            });
+            return _jsonResponse({
+              'status': 200,
+              'message': 'Logged in successfully',
+              'data': {
+                'accessToken': 'backend-access',
+                'refreshToken': 'backend-refresh',
+              },
+            }, 200);
+          }),
+        ),
+      );
+      addTearDown(api.close);
 
-    final response = await api.firebaseLogin(
-      idToken: 'google-id-token',
-      fcmToken: 'fcm-token',
-    );
-    expect(response.data, {
-      'accessToken': 'backend-access',
-      'refreshToken': 'backend-refresh',
-    });
-  });
+      final response = await api.firebaseLogin(idToken: 'google-id-token');
+      expect(response.data, {
+        'accessToken': 'backend-access',
+        'refreshToken': 'backend-refresh',
+      });
+    },
+  );
 
   test('register sends the required JSON body', () async {
     final api = AuthApi(
@@ -172,6 +172,67 @@ void main() {
       isTrue,
     );
   });
+
+  test(
+    'verifies email, reads consumed state, and confirms password reset',
+    () async {
+      final verificationToken = List<String>.filled(32, 'v').join();
+      final resetToken = List<String>.filled(32, 'r').join();
+      final expected = [
+        (
+          ApiEndpoints.verifyEmail,
+          {'email': 'user@example.com', 'token': verificationToken},
+        ),
+        (
+          ApiEndpoints.checkEmailVerification,
+          {'email': 'user@example.com', 'token': verificationToken},
+        ),
+        (
+          ApiEndpoints.confirmPasswordReset,
+          {
+            'email': 'user@example.com',
+            'token': resetToken,
+            'newPassword': 'NewPassword123!',
+          },
+        ),
+      ];
+      var index = 0;
+      final api = AuthApi(
+        apiClient: ApiClient(
+          baseUri: Uri.parse(baseUri),
+          httpClient: MockClient((request) async {
+            final item = expected[index++];
+            expect(request.url.path, item.$1);
+            expect(jsonDecode(request.body), item.$2);
+            return _jsonResponse({
+              'status': 200,
+              'message': 'Success',
+              'data': index == 2 ? {'success': true} : {'message': 'Completed'},
+            }, 200);
+          }),
+        ),
+      );
+      addTearDown(api.close);
+
+      await api.verifyEmail(
+        email: 'user@example.com',
+        token: verificationToken,
+      );
+      expect(
+        await api.checkEmailVerification(
+          email: 'user@example.com',
+          token: verificationToken,
+        ),
+        isTrue,
+      );
+      await api.confirmPasswordReset(
+        email: 'user@example.com',
+        token: resetToken,
+        newPassword: 'NewPassword123!',
+      );
+      expect(index, expected.length);
+    },
+  );
 
   test('requests and resends reset and verification emails', () async {
     final expectedPaths = [

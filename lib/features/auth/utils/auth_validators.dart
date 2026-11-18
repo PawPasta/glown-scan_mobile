@@ -15,14 +15,8 @@ class AuthValidators {
     if (password.length < 6) {
       return 'Use at least 6 characters.';
     }
-    if (!RegExp(r'[A-Z]').hasMatch(password)) {
-      return 'Include at least one uppercase letter.';
-    }
-    if (!RegExp(r'[a-z]').hasMatch(password)) {
-      return 'Include at least one lowercase letter.';
-    }
-    if (!RegExp(r'[^A-Za-z0-9]').hasMatch(password)) {
-      return 'Include at least one special character.';
+    if (password.length > 72) {
+      return 'Use no more than 72 characters.';
     }
     return null;
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../services/product_api.dart';
 
@@ -17,6 +18,17 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
   void dispose() {
     if (widget.api == null) _api.close();
     super.dispose();
+  }
+
+  Future<void> _openExternalUrl(String value) async {
+    final uri = Uri.tryParse(value);
+    if (uri == null || !{'https', 'http'}.contains(uri.scheme)) return;
+    final opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Could not open the product website.')),
+      );
+    }
   }
 
   @override
@@ -71,11 +83,14 @@ class _ProductDetailPageState extends State<ProductDetailPage> {
                 style: Theme.of(context).textTheme.bodySmall,
               ),
             ],
-            if (item.externalUrl != null)
-              const Padding(
-                padding: EdgeInsets.only(top: 12),
-                child: Text('Purchase link available on the product website.'),
+            if (item.externalUrl != null) ...[
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: () => _openExternalUrl(item.externalUrl!),
+                icon: const Icon(Icons.open_in_new),
+                label: const Text('Visit retailer'),
               ),
+            ],
           ],
         );
       },

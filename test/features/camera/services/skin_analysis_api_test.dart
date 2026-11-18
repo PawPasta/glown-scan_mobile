@@ -23,6 +23,13 @@ void main() {
         baseUri: Uri.parse('https://api.glownscan.xyz/'),
         accessTokenProvider: () async => 'access-token',
         httpClient: MockClient((request) async {
+          if (request.url.path == ApiEndpoints.skinAnalysisConsentInfo) {
+            return _json({
+              'status': 200,
+              'message': 'Success',
+              'data': _consentInfoJson,
+            }, 200);
+          }
           if (request.url.path == ApiEndpoints.skinAnalysisUploadIntent) {
             expect(jsonDecode(request.body), {'consentAccepted': true});
             return _json({
@@ -35,6 +42,7 @@ void main() {
                 'apiKey': 'key',
                 'cloudName': 'cloud',
                 'consentVersion': '2026-11',
+                'aiProvider': 'GROQ',
               },
             }, 201);
           }
@@ -81,9 +89,11 @@ void main() {
       );
       addTearDown(api.close);
 
+      expect((await api.getConsentInfo()).aiProvider, 'GROQ');
       final queued = await api.analyze(
         XFile(photo.path),
         consentAccepted: true,
+        consentInfo: _consentInfo,
         idempotencyKey: 'retry-safe-key',
       );
       final completed = await api.getStatus(queued.id);
@@ -98,6 +108,7 @@ void main() {
     final api = SkinAnalysisApi(
       apiClient: ApiClient(
         baseUri: Uri.parse('https://api.glownscan.xyz/'),
+        accessTokenProvider: () async => 'token',
         httpClient: MockClient(
           (_) async => throw StateError('No request expected'),
         ),
@@ -106,7 +117,11 @@ void main() {
     addTearDown(api.close);
 
     await expectLater(
-      api.analyze(XFile('face.jpg'), consentAccepted: false),
+      api.analyze(
+        XFile('face.jpg'),
+        consentAccepted: false,
+        consentInfo: _consentInfo,
+      ),
       throwsA(
         isA<ApiException>().having(
           (error) => error.kind,
@@ -116,7 +131,61 @@ void main() {
       ),
     );
   });
+
+  test('does not upload when the consent provider changes', () async {
+    var cloudinaryCalled = false;
+    final api = SkinAnalysisApi(
+      apiClient: ApiClient(
+        baseUri: Uri.parse('https://api.glownscan.xyz/'),
+        accessTokenProvider: () async => 'token',
+        httpClient: MockClient(
+          (request) async => _json({
+            'status': 201,
+            'message': 'Created',
+            'data': {
+              'publicId': 'glownscan/skin-analysis/user-id/scan-id',
+              'timestamp': 1794380513,
+              'signature': 'intent-signature',
+              'apiKey': 'key',
+              'cloudName': 'cloud',
+              'consentVersion': '2026-11',
+              'aiProvider': 'GEMINI',
+            },
+          }, 201),
+        ),
+      ),
+      cloudinaryClient: MockClient((_) async {
+        cloudinaryCalled = true;
+        throw StateError('The Cloudinary upload must not be attempted.');
+      }),
+    );
+    addTearDown(api.close);
+
+    await expectLater(
+      api.analyze(
+        XFile('face.jpg'),
+        consentAccepted: true,
+        consentInfo: _consentInfo,
+      ),
+      throwsA(isA<ApiException>()),
+    );
+    expect(cloudinaryCalled, isFalse);
+  });
 }
+
+const _consentInfo = SkinAnalysisConsentInfo(
+  consentVersion: '2026-11',
+  aiProvider: 'GROQ',
+  providerName: 'Groq',
+  disclosureText: 'Your face photo will be analyzed by Groq.',
+);
+
+const _consentInfoJson = {
+  'consentVersion': '2026-11',
+  'aiProvider': 'GROQ',
+  'providerName': 'Groq',
+  'disclosureText': 'Your face photo will be analyzed by Groq.',
+};
 
 http.Response _json(Map<String, Object?> body, int statusCode) =>
     http.Response.bytes(

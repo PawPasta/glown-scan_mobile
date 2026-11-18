@@ -10,7 +10,7 @@ import 'package:glown_scan_mobile/features/auth/pages/reset_password_page.dart';
 import 'package:glown_scan_mobile/features/auth/services/auth_api.dart';
 
 void main() {
-  testWidgets('register validates password and shows resend after success', (
+  testWidgets('register verifies email and can resend verification', (
     tester,
   ) async {
     tester.view.physicalSize = const Size(800, 1400);
@@ -55,14 +55,18 @@ void main() {
 
     expect(api.registerCalls, 1);
     expect(find.text('Resend verification email'), findsOneWidget);
-    final disabledButton = tester.widget<FilledButton>(
-      find.widgetWithText(FilledButton, 'Account created'),
-    );
-    expect(disabledButton.onPressed, isNull);
-
     await tester.tap(find.text('Resend verification email'));
     await tester.pumpAndSettle();
     expect(api.verificationResendCalls, 1);
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Email verification token'),
+      List<String>.filled(32, 'v').join(),
+    );
+    await tester.tap(find.text('Verify email'));
+    await tester.pumpAndSettle();
+    expect(api.verifyEmailCalls, 1);
+    expect(find.widgetWithText(FilledButton, 'Email verified'), findsOneWidget);
   });
 
   testWidgets('login does not wait for FCM and stores session', (tester) async {
@@ -75,11 +79,7 @@ void main() {
     final storage = _FakeAuthSessionStore();
     await tester.pumpWidget(
       MaterialApp(
-        home: LoginPage(
-          authApi: api,
-          sessionStorage: storage,
-          fcmTokenProvider: () async => 'device-fcm-token',
-        ),
+        home: LoginPage(authApi: api, sessionStorage: storage),
       ),
     );
 
@@ -95,7 +95,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.loginCalls, 1);
-    expect(api.lastFcmToken, isNull);
     expect(api.lastPlatform, MobilePlatform.android);
     expect(storage.accessToken, 'access-token');
     expect(storage.refreshToken, 'refresh-token');
@@ -118,7 +117,6 @@ void main() {
           authApi: api,
           sessionStorage: storage,
           googleIdTokenProvider: () async => 'google-id-token',
-          fcmTokenProvider: () async => 'google-fcm-token',
         ),
       ),
     );
@@ -128,7 +126,6 @@ void main() {
 
     expect(api.firebaseLoginCalls, 1);
     expect(api.lastIdToken, 'google-id-token');
-    expect(api.lastFcmToken, isNull);
     expect(storage.accessToken, 'access-token');
     expect(storage.refreshToken, 'refresh-token');
     expect(find.text('Care that starts with understanding.'), findsOneWidget);
@@ -142,14 +139,10 @@ void main() {
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
 
-    final fcmToken = Completer<String?>();
+    final api = _FakeAuthApi()..loginResponse = Completer<ApiResponse>();
     await tester.pumpWidget(
       MaterialApp(
-        home: LoginPage(
-          authApi: _FakeAuthApi(),
-          sessionStorage: _FakeAuthSessionStore(),
-          fcmTokenProvider: () => fcmToken.future,
-        ),
+        home: LoginPage(authApi: api, sessionStorage: _FakeAuthSessionStore()),
       ),
     );
     await tester.enterText(
@@ -202,7 +195,13 @@ void main() {
       isNull,
     );
 
-    fcmToken.complete('device-fcm-token');
+    api.loginResponse!.complete(
+      const ApiResponse(
+        status: 200,
+        message: 'Logged in successfully',
+        data: {'accessToken': 'access-token', 'refreshToken': 'refresh-token'},
+      ),
+    );
     await tester.pumpAndSettle();
   });
 
@@ -285,20 +284,44 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.resetRequestCalls, 1);
     expect(find.text('Resend reset email'), findsOneWidget);
-    expect(find.text('Check token'), findsOneWidget);
+    expect(find.text('Set new password'), findsOneWidget);
+    expect(find.text('Check reset status'), findsOneWidget);
 
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Email token'),
-      'reset-token',
+      List<String>.filled(32, 'r').join(),
     );
-    await tester.tap(find.text('Check token'));
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'New password'),
+      'NewPassword123!',
+    );
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Confirm new password'),
+      'NewPassword123!',
+    );
+    await tester.tap(find.text('Set new password'));
     await tester.pumpAndSettle();
-    expect(api.resetCheckCalls, 1);
-    expect(
-      find.text('The token was used successfully on the website.'),
-      findsOneWidget,
-    );
+    expect(api.resetConfirmCalls, 1);
+    expect(find.text('Password updated'), findsOneWidget);
+    expect(find.text('Back to log in'), findsOneWidget);
+    expect(api.resetResendCalls, 0);
+  });
 
+  testWidgets('reset password can resend email before confirming', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(800, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final api = _FakeAuthApi();
+    await tester.pumpWidget(MaterialApp(home: ResetPasswordPage(authApi: api)));
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'Email address'),
+      'user@example.com',
+    );
+    await tester.tap(find.text('Send reset email'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Resend reset email'));
     await tester.pumpAndSettle();
     expect(api.resetResendCalls, 1);
@@ -313,7 +336,9 @@ class _FakeAuthApi implements AuthApiContract {
   int resetRequestCalls = 0;
   int resetResendCalls = 0;
   int resetCheckCalls = 0;
-  String? lastFcmToken;
+  int resetConfirmCalls = 0;
+  int verifyEmailCalls = 0;
+  Completer<ApiResponse>? loginResponse;
   String? lastIdToken;
   MobilePlatform? lastPlatform;
 
@@ -335,28 +360,30 @@ class _FakeAuthApi implements AuthApiContract {
   Future<ApiResponse> loginMobile({
     required String email,
     required String password,
-    String? fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) async {
     loginCalls++;
-    lastFcmToken = fcmToken;
     lastPlatform = platform;
-    return const ApiResponse(
-      status: 200,
-      message: 'Logged in successfully',
-      data: {'accessToken': 'access-token', 'refreshToken': 'refresh-token'},
-    );
+    return loginResponse?.future ??
+        Future.value(
+          const ApiResponse(
+            status: 200,
+            message: 'Logged in successfully',
+            data: {
+              'accessToken': 'access-token',
+              'refreshToken': 'refresh-token',
+            },
+          ),
+        );
   }
 
   @override
   Future<ApiResponse> firebaseLogin({
     required String idToken,
-    String? fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) async {
     firebaseLoginCalls++;
     lastIdToken = idToken;
-    lastFcmToken = fcmToken;
     return const ApiResponse(
       status: 200,
       message: 'Logged in successfully',
@@ -400,6 +427,39 @@ class _FakeAuthApi implements AuthApiContract {
     return const ApiResponse(
       status: 200,
       message: 'Verification email sent again',
+      data: null,
+    );
+  }
+
+  @override
+  Future<ApiResponse> verifyEmail({
+    required String email,
+    required String token,
+  }) async {
+    verifyEmailCalls++;
+    return const ApiResponse(
+      status: 200,
+      message: 'Email verified',
+      data: null,
+    );
+  }
+
+  @override
+  Future<bool> checkEmailVerification({
+    required String email,
+    required String token,
+  }) async => true;
+
+  @override
+  Future<ApiResponse> confirmPasswordReset({
+    required String email,
+    required String token,
+    required String newPassword,
+  }) async {
+    resetConfirmCalls++;
+    return const ApiResponse(
+      status: 200,
+      message: 'Password reset',
       data: null,
     );
   }

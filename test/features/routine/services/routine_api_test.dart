@@ -8,6 +8,41 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test('parses routine product cards and omits IDs for new draft steps', () {
+    final routine = SkinRoutine.fromJson({
+      'id': 'routine-1',
+      'title': 'Gentle routine',
+      'status': 'DRAFT',
+      'morningSteps': [
+        {
+          'id': 'step-1',
+          'period': 'MORNING',
+          'position': 1,
+          'title': 'Cleanse',
+          'instruction': 'Wash gently.',
+          'optional': false,
+          'product': {
+            'id': 'product-1',
+            'name': 'Gentle cleanser',
+            'brand': 'Glow',
+          },
+        },
+      ],
+      'eveningSteps': [],
+    });
+
+    expect(routine.morningSteps.single.product?.name, 'Gentle cleanser');
+    final newStep = RoutineStep(
+      id: '_draft_step',
+      period: 'EVENING',
+      position: 1,
+      title: 'Moisturize',
+      instruction: 'Apply moisturizer.',
+      optional: false,
+    );
+    expect(newStep.toJson(), isNot(contains('id')));
+  });
+
   test(
     'creates an idempotent routine draft and saves daily progress',
     () async {

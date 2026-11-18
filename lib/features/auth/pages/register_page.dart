@@ -20,10 +20,14 @@ class _RegisterPageState extends State<RegisterPage> {
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+  final _verificationTokenController = TextEditingController();
   late final AuthApiContract _authApi = widget.authApi ?? AuthApi();
   bool _isSubmitting = false;
   bool _isResending = false;
+  bool _isVerifying = false;
+  bool _isCheckingVerification = false;
   bool _isRegistered = false;
+  bool _isVerified = false;
   bool _hidePassword = true;
   bool _hideConfirmPassword = true;
 
@@ -32,6 +36,7 @@ class _RegisterPageState extends State<RegisterPage> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+    _verificationTokenController.dispose();
     super.dispose();
   }
 
@@ -84,6 +89,65 @@ class _RegisterPageState extends State<RegisterPage> {
     }
   }
 
+  Future<void> _verifyEmail() async {
+    final token = _verificationTokenController.text.trim();
+    if (token.length < 32) {
+      showAuthMessage(
+        context,
+        'Enter the verification token from your email.',
+        error: true,
+      );
+      return;
+    }
+    setState(() => _isVerifying = true);
+    try {
+      final response = await _authApi.verifyEmail(
+        email: _emailController.text.trim(),
+        token: token,
+      );
+      if (!mounted) return;
+      setState(() => _isVerified = true);
+      showAuthMessage(context, response.message);
+    } on ApiException catch (error) {
+      if (mounted) showAuthMessage(context, error.message, error: true);
+    } finally {
+      if (mounted) setState(() => _isVerifying = false);
+    }
+  }
+
+  Future<void> _checkVerificationStatus() async {
+    final token = _verificationTokenController.text.trim();
+    if (token.length < 32) {
+      showAuthMessage(
+        context,
+        'Enter the verification token from your email.',
+        error: true,
+      );
+      return;
+    }
+    setState(() => _isCheckingVerification = true);
+    try {
+      final completed = await _authApi.checkEmailVerification(
+        email: _emailController.text.trim(),
+        token: token,
+      );
+      if (mounted) {
+        setState(() => _isVerified = completed);
+        showAuthMessage(
+          context,
+          completed
+              ? 'Your email is verified.'
+              : 'Email verification has not been completed yet.',
+          error: !completed,
+        );
+      }
+    } on ApiException catch (error) {
+      if (mounted) showAuthMessage(context, error.message, error: true);
+    } finally {
+      if (mounted) setState(() => _isCheckingVerification = false);
+    }
+  }
+
   void _backToLogin() {
     if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
@@ -102,20 +166,48 @@ class _RegisterPageState extends State<RegisterPage> {
       eyebrow: _isRegistered ? 'Verify your email' : 'Start your journey',
       title: _isRegistered ? 'Check your email' : 'Create an account',
       subtitle: _isRegistered
-          ? 'We sent a verification link to ${_emailController.text.trim()}.'
+          ? 'We sent a verification link to ${_emailController.text.trim()}. Enter its token below to finish setting up your account.'
           : 'Create an account to start a skincare routine tailored to you.',
       children: [
         if (_isRegistered) ...[
-          const Icon(
-            Icons.mark_email_read_outlined,
+          Icon(
+            _isVerified
+                ? Icons.verified_outlined
+                : Icons.mark_email_read_outlined,
             size: 68,
-            color: Color(0xFFC76D88),
+            color: const Color(0xFFC76D88),
           ),
           const SizedBox(height: 20),
-          AuthSubmitButton(label: 'Account created', onPressed: null),
+          if (_isVerified)
+            AuthSubmitButton(label: 'Email verified', onPressed: null)
+          else ...[
+            AuthTextField(
+              controller: _verificationTokenController,
+              label: 'Email verification token',
+              icon: Icons.key_outlined,
+              textInputAction: TextInputAction.done,
+            ),
+            const SizedBox(height: 12),
+            AuthSubmitButton(
+              label: 'Verify email',
+              isLoading: _isVerifying,
+              onPressed: _verifyEmail,
+            ),
+            const SizedBox(height: 8),
+            OutlinedButton(
+              onPressed: _isCheckingVerification
+                  ? null
+                  : _checkVerificationStatus,
+              child: Text(
+                _isCheckingVerification
+                    ? 'Checking…'
+                    : 'Check verification status',
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           OutlinedButton.icon(
-            onPressed: _isResending ? null : _resendVerification,
+            onPressed: _isVerified || _isResending ? null : _resendVerification,
             icon: _isResending
                 ? const SizedBox(
                     width: 18,

@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../../../core/storage/installation_storage.dart';
@@ -40,10 +43,21 @@ class DeviceMetadata {
     } catch (_) {
       // Registration still works when package metadata is unavailable.
     }
+    String? timezone;
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        timezone = await const MethodChannel('glownscan/device')
+            .invokeMethod<String>('getTimezoneId');
+      } on MissingPluginException {
+        timezone = null;
+      } on PlatformException {
+        timezone = null;
+      }
+    }
     return DeviceMetadata(
       appVersion: appVersion,
       locale: PlatformDispatcher.instance.locale.toLanguageTag(),
-      timezone: DateTime.now().timeZoneName,
+      timezone: timezone,
     );
   }
 }

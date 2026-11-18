@@ -1,6 +1,44 @@
 import '../../../core/network/api_client.dart';
 import '../../../core/network/api_endpoints.dart';
 
+class RoutineProductCard {
+  const RoutineProductCard({
+    required this.id,
+    required this.name,
+    this.brand,
+    this.imageUrl,
+  });
+
+  final String id;
+  final String name;
+  final String? brand;
+  final String? imageUrl;
+
+  factory RoutineProductCard.fromJson(Object? value) {
+    if (value is! Map<String, dynamic> ||
+        value['id'] is! String ||
+        value['name'] is! String) {
+      throw const ApiException(
+        'A routine product card is invalid.',
+        kind: ApiErrorKind.invalidResponse,
+      );
+    }
+    return RoutineProductCard(
+      id: value['id'] as String,
+      name: value['name'] as String,
+      brand: value['brand'] as String?,
+      imageUrl: value['imageUrl'] as String?,
+    );
+  }
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    if (brand != null) 'brand': brand,
+    if (imageUrl != null) 'imageUrl': imageUrl,
+  };
+}
+
 class RoutineStep {
   const RoutineStep({
     required this.id,
@@ -9,6 +47,7 @@ class RoutineStep {
     required this.title,
     required this.instruction,
     required this.optional,
+    this.product,
   });
   final String id;
   final String period;
@@ -16,14 +55,27 @@ class RoutineStep {
   final String title;
   final String instruction;
   final bool optional;
+  final RoutineProductCard? product;
+
+  RoutineStep copyWith({String? title, String? instruction, bool? optional}) =>
+      RoutineStep(
+        id: id,
+        period: period,
+        position: position,
+        title: title ?? this.title,
+        instruction: instruction ?? this.instruction,
+        optional: optional ?? this.optional,
+        product: product,
+      );
 
   Map<String, Object?> toJson() => {
-    'id': id,
+    if (id.isNotEmpty && !id.startsWith('_draft_')) 'id': id,
     'period': period,
     'position': position,
     'title': title,
     'instruction': instruction,
     'optional': optional,
+    if (product != null) 'product': product!.toJson(),
   };
   factory RoutineStep.fromJson(Object? value) {
     if (value is! Map<String, dynamic> ||
@@ -44,6 +96,9 @@ class RoutineStep {
       title: value['title'] as String,
       instruction: value['instruction'] as String,
       optional: value['optional'] as bool? ?? false,
+      product: value['product'] == null
+          ? null
+          : RoutineProductCard.fromJson(value['product']),
     );
   }
 }

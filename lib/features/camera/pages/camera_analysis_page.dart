@@ -46,6 +46,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
   String? _errorMessage;
   XFile? _capturedImage;
   Uint8List? _capturedBytes;
+  String? _analysisIdempotencyKey;
   String? _analysisJson;
   bool _analysisRequiresPremium = false;
   StreamSubscription<void>? _analysisStatusSubscription;
@@ -164,6 +165,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       setState(() {
         _capturedImage = image;
         _capturedBytes = bytes;
+        _analysisIdempotencyKey = SkinAnalysisApi.newIdempotencyKey();
         _stage = _CameraStage.review;
         _stableFaceFrames = 0;
       });
@@ -185,6 +187,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     setState(() {
       _capturedImage = null;
       _capturedBytes = null;
+      _analysisIdempotencyKey = null;
       _analysisJson = null;
       _analysisRequiresPremium = false;
       _errorMessage = null;
@@ -201,11 +204,19 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
   Future<void> _analyze() async {
     final image = _capturedImage;
     if (image == null) return;
-    final consent = await _requestConsent();
-    if (!consent || !mounted) return;
-    setState(() => _stage = _CameraStage.analyzing);
     try {
-      var result = await _skinAnalysisApi.analyze(image, consentAccepted: true);
+      final consentInfo = await _skinAnalysisApi.getConsentInfo();
+      if (!mounted) return;
+      final consent = await _requestConsent(consentInfo);
+      if (!consent || !mounted) return;
+      setState(() => _stage = _CameraStage.analyzing);
+      var result = await _skinAnalysisApi.analyze(
+        image,
+        consentAccepted: true,
+        consentInfo: consentInfo,
+        idempotencyKey: _analysisIdempotencyKey ??=
+            SkinAnalysisApi.newIdempotencyKey(),
+      );
       final updates = StreamController<void>.broadcast();
       _analysisStatusSubscription = _skinAnalysisApi
           .watchStatus(result.id)
@@ -252,13 +263,13 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     }
   }
 
-  Future<bool> _requestConsent() async =>
+  Future<bool> _requestConsent(SkinAnalysisConsentInfo consentInfo) async =>
       await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Use your face photo?'),
-          content: const Text(
-            'GlowScan will store this face photo with Cloudinary and send it to Gemini to create your skin analysis. It is not medical advice.',
+          content: Text(
+            '${consentInfo.disclosureText}\n\nAI provider: ${consentInfo.providerName}',
           ),
           actions: [
             TextButton(
