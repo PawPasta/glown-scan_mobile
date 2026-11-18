@@ -13,6 +13,7 @@ import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../premium/widgets/premium_required_view.dart';
 import '../services/skin_analysis_api.dart';
+import '../widgets/face_scan_guide.dart';
 
 class CameraAnalysisPage extends StatefulWidget {
   const CameraAnalysisPage({this.skinAnalysisApi, super.key});
@@ -43,6 +44,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
   bool _isProcessingImage = false;
   bool _isCapturing = false;
   int _stableFaceFrames = 0;
+  Rect? _detectedFaceBounds;
   String? _errorMessage;
   XFile? _capturedImage;
   Uint8List? _capturedBytes;
@@ -75,6 +77,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
         _isInitializing = true;
         _errorMessage = null;
         _stableFaceFrames = 0;
+        _detectedFaceBounds = null;
       });
     }
     if (defaultTargetPlatform != TargetPlatform.android) {
@@ -135,11 +138,10 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       final validFace =
           faces.length == 1 && _faceIsLargeEnough(faces.single, image);
       _stableFaceFrames = validFace ? _stableFaceFrames + 1 : 0;
-      if (_stableFaceFrames >= _stableFramesToCapture) {
-        unawaited(_captureAutomatically());
-      } else {
-        setState(() {});
-      }
+      _detectedFaceBounds = validFace
+          ? _normalizedFaceBounds(faces.single, image)
+          : null;
+      setState(() {});
     } catch (error) {
       _setError('Face detection failed: $error');
     } finally {
@@ -151,9 +153,26 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       face.boundingBox.width / image.width >= 0.25 &&
       face.boundingBox.height / image.height >= 0.25;
 
-  Future<void> _captureAutomatically() async {
+  Rect _normalizedFaceBounds(Face face, CameraImage image) {
+    final bounds = face.boundingBox;
+    final left = (bounds.left / image.width).clamp(0.0, 1.0);
+    final top = (bounds.top / image.height).clamp(0.0, 1.0);
+    final right = (bounds.right / image.width).clamp(0.0, 1.0);
+    final bottom = (bounds.bottom / image.height).clamp(0.0, 1.0);
+    final camera = _cameraController?.description;
+    final mirroredLeft = camera?.lensDirection == CameraLensDirection.front
+        ? 1 - right
+        : left;
+    final mirroredRight = camera?.lensDirection == CameraLensDirection.front
+        ? 1 - left
+        : right;
+    return Rect.fromLTRB(mirroredLeft, top, mirroredRight, bottom);
+  }
+
+  Future<void> _takePhoto() async {
     if (_isCapturing || !mounted) return;
     _isCapturing = true;
+    setState(() {});
     try {
       final controller = _cameraController;
       if (controller == null || !controller.value.isInitialized) return;
@@ -166,6 +185,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
         _capturedBytes = bytes;
         _stage = _CameraStage.review;
         _stableFaceFrames = 0;
+        _detectedFaceBounds = null;
       });
     } on CameraException catch (error) {
       _setError(_cameraErrorMessage(error));
@@ -173,6 +193,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       _setError('Could not capture the photo: $error');
     } finally {
       _isCapturing = false;
+      if (mounted && _stage == _CameraStage.scanning) setState(() {});
     }
   }
 
@@ -190,6 +211,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       _errorMessage = null;
       _stage = _CameraStage.scanning;
       _stableFaceFrames = 0;
+      _detectedFaceBounds = null;
     });
     try {
       await controller.startImageStream(_processCameraImage);
@@ -343,6 +365,9 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       isInitializing: _isInitializing,
       stableFrames: _stableFaceFrames,
       stableFramesNeeded: _stableFramesToCapture,
+      detectedFaceBounds: _detectedFaceBounds,
+      isCapturing: _isCapturing,
+      onTakePhoto: _takePhoto,
     ),
   };
 }
@@ -353,86 +378,30 @@ class _ScanningView extends StatelessWidget {
     required this.isInitializing,
     required this.stableFrames,
     required this.stableFramesNeeded,
+    required this.detectedFaceBounds,
+    required this.isCapturing,
+    required this.onTakePhoto,
   });
   final CameraController? controller;
   final bool isInitializing;
   final int stableFrames;
   final int stableFramesNeeded;
+  final Rect? detectedFaceBounds;
+  final bool isCapturing;
+  final VoidCallback onTakePhoto;
 
   @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.all(20),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text('Face scan', style: Theme.of(context).textTheme.headlineSmall),
-        const SizedBox(height: 6),
-        Text(
-          'Centre one face inside the oval. We will capture it automatically.',
-          style: Theme.of(context).textTheme.bodyMedium,
-        ),
-        const SizedBox(height: 18),
-        Expanded(
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(16),
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                if (controller != null && controller!.value.isInitialized)
-                  CameraPreview(controller!)
-                else
-                  const ColoredBox(color: AppTheme.sand),
-                const CustomPaint(painter: _FaceOvalPainter()),
-                if (isInitializing)
-                  const Center(child: CircularProgressIndicator()),
-              ],
-            ),
-          ),
-        ),
-        const SizedBox(height: 16),
-        _StatusCard(
-          icon: Icons.face_retouching_natural_outlined,
-          message: stableFrames == 0
-              ? 'Looking for one clear face…'
-              : 'Face detected. Hold still…',
-          progress: stableFrames / stableFramesNeeded,
-        ),
-      ],
-    ),
+  Widget build(BuildContext context) => FaceScanGuide(
+    preview: controller != null && controller!.value.isInitialized
+        ? CameraPreview(controller!)
+        : const ColoredBox(color: AppTheme.sand),
+    isInitializing: isInitializing,
+    stableFrames: stableFrames,
+    stableFramesNeeded: stableFramesNeeded,
+    detectedFaceBounds: detectedFaceBounds,
+    isCapturing: isCapturing,
+    onTakePhoto: onTakePhoto,
   );
-}
-
-class _FaceOvalPainter extends CustomPainter {
-  const _FaceOvalPainter();
-  @override
-  void paint(Canvas canvas, Size size) {
-    final oval = Rect.fromCenter(
-      center: Offset(size.width / 2, size.height / 2),
-      width: size.width * .62,
-      height: size.height * .72,
-    );
-    final outside = Path()
-      ..fillType = PathFillType.evenOdd
-      ..addRect(Offset.zero & size)
-      ..addOval(oval);
-    canvas.drawPath(
-      outside,
-      Paint()
-        ..color = const Color(0x99000000)
-        ..style = PaintingStyle.fill
-        ..blendMode = BlendMode.srcOver,
-    );
-    canvas.drawOval(
-      oval,
-      Paint()
-        ..color = AppTheme.paper
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 3,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _ReviewView extends StatelessWidget {
@@ -568,45 +537,6 @@ class _ErrorView extends StatelessWidget {
           FilledButton(onPressed: onRetry, child: const Text('Try again')),
         ],
       ),
-    ),
-  );
-}
-
-class _StatusCard extends StatelessWidget {
-  const _StatusCard({
-    required this.icon,
-    required this.message,
-    required this.progress,
-  });
-  final IconData icon;
-  final String message;
-  final double progress;
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: AppTheme.sand,
-      borderRadius: BorderRadius.circular(12),
-      border: Border.all(color: AppTheme.softBorder),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Icon(icon, color: AppTheme.deepRose),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                message,
-                style: const TextStyle(fontWeight: FontWeight.w600),
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        LinearProgressIndicator(value: progress.clamp(0, 1).toDouble()),
-      ],
     ),
   );
 }
