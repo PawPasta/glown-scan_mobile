@@ -112,6 +112,7 @@ class ProductRecommendation {
     this.brand,
     this.description,
     this.imageUrl,
+    this.matchedConcerns = const [],
     this.reasons = const [],
     this.disclaimer,
   });
@@ -120,6 +121,7 @@ class ProductRecommendation {
   final String? brand;
   final String? description;
   final String? imageUrl;
+  final List<String> matchedConcerns;
   final List<String> reasons;
   final String? disclaimer;
 
@@ -138,8 +140,63 @@ class ProductRecommendation {
       brand: value['brand'] as String?,
       description: value['description'] as String?,
       imageUrl: value['imageUrl'] as String?,
+      matchedConcerns: _strings(value['matchedConcerns']),
       reasons: _strings(value['reasons']),
       disclaimer: value['disclaimer'] as String?,
+    );
+  }
+}
+
+class RecommendationSource {
+  const RecommendationSource({
+    required this.assessmentAvailable,
+    required this.analysisAvailable,
+    required this.concernCodes,
+  });
+
+  final bool assessmentAvailable;
+  final bool analysisAvailable;
+  final List<String> concernCodes;
+
+  factory RecommendationSource.fromJson(Object? value) {
+    if (value is! Map<String, dynamic>) {
+      throw const ApiException(
+        'Recommendation source information is invalid.',
+        kind: ApiErrorKind.invalidResponse,
+      );
+    }
+    return RecommendationSource(
+      assessmentAvailable: value['assessmentAvailable'] as bool? ?? false,
+      analysisAvailable: value['analysisAvailable'] as bool? ?? false,
+      concernCodes: _strings(value['concernCodes']),
+    );
+  }
+}
+
+class RecommendationResponse {
+  const RecommendationResponse({
+    required this.generatedAt,
+    required this.source,
+    required this.items,
+  });
+
+  final String? generatedAt;
+  final RecommendationSource source;
+  final List<ProductRecommendation> items;
+
+  factory RecommendationResponse.fromJson(Object? value) {
+    if (value is! Map<String, dynamic> || value['items'] is! List) {
+      throw const ApiException(
+        'The recommendations response is invalid.',
+        kind: ApiErrorKind.invalidResponse,
+      );
+    }
+    return RecommendationResponse(
+      generatedAt: value['generatedAt'] as String?,
+      source: RecommendationSource.fromJson(value['source']),
+      items: (value['items'] as List)
+          .map(ProductRecommendation.fromJson)
+          .toList(),
     );
   }
 }
@@ -148,7 +205,8 @@ abstract interface class SkinCareApiContract {
   Future<SkinAssessment?> getAssessment();
   Future<SkinAssessment> saveAssessment(SkinAssessmentAnswers answers);
   Future<SkinAnalysisHistory> getHistory({int page = 1, int limit = 20});
-  Future<List<ProductRecommendation>> getRecommendations({int limit = 20});
+  Future<SkinAnalysisSession> getAnalysisSession(String sessionId);
+  Future<RecommendationResponse> getRecommendations({int limit = 20});
 }
 
 class SkinCareApi implements SkinCareApiContract {
@@ -197,21 +255,21 @@ class SkinCareApi implements SkinCareApiContract {
   }
 
   @override
-  Future<List<ProductRecommendation>> getRecommendations({
-    int limit = 20,
-  }) async {
+  Future<SkinAnalysisSession> getAnalysisSession(String sessionId) async =>
+      SkinAnalysisSession.fromJson(
+        (await _apiClient.get(
+          '${ApiEndpoints.skinAnalysis}/$sessionId',
+          requiresAuth: true,
+        )).data,
+      );
+
+  @override
+  Future<RecommendationResponse> getRecommendations({int limit = 20}) async {
     final response = await _apiClient.get(
       '${ApiEndpoints.recommendationsMe}?limit=${limit.clamp(1, 100)}',
       requiresAuth: true,
     );
-    final data = response.data;
-    if (data is! Map<String, dynamic> || data['items'] is! List) {
-      throw const ApiException(
-        'The recommendations response is invalid.',
-        kind: ApiErrorKind.invalidResponse,
-      );
-    }
-    return (data['items'] as List).map(ProductRecommendation.fromJson).toList();
+    return RecommendationResponse.fromJson(response.data);
   }
 
   void close() => _apiClient.close();

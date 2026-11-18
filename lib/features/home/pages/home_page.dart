@@ -28,15 +28,25 @@ class _HomePageState extends State<HomePage> {
   Future<void> _logout() async {
     final sessionStorage = widget.sessionStorage ?? AuthSessionStorage();
     final messenger = ScaffoldMessenger.of(context);
-    String? logoutWarning;
+    final logoutWarnings = <String>[];
     final apiClient = ApiClient();
     try {
       await DeviceSyncCoordinator.instance.stop();
+    } catch (_) {
+      logoutWarnings.add('Push notification sync could not be stopped.');
+    }
+    try {
       final deviceApi = DeviceApiClient(apiClient: apiClient);
       await DeviceRegistrationService(
         deviceApi: deviceApi,
         installationStore: InstallationStorage(),
       ).unregister();
+    } catch (_) {
+      logoutWarnings.add(
+        'Push notifications could not be disabled on the server.',
+      );
+    }
+    try {
       final refreshToken = await sessionStorage.readRefreshToken();
       if (refreshToken != null && refreshToken.isNotEmpty) {
         await apiClient.post(
@@ -46,8 +56,8 @@ class _HomePageState extends State<HomePage> {
           requiresAuth: true,
         );
       }
-    } catch (error) {
-      logoutWarning = 'Server sign-out failed: $error';
+    } catch (_) {
+      logoutWarnings.add('Server sign-out could not be completed.');
     } finally {
       apiClient.close();
       await sessionStorage.clear();
@@ -58,9 +68,13 @@ class _HomePageState extends State<HomePage> {
       MaterialPageRoute<void>(builder: (_) => const LoginPage()),
       (_) => false,
     );
-    if (logoutWarning != null) {
+    if (logoutWarnings.isNotEmpty) {
       messenger.showSnackBar(
-        SnackBar(content: Text('Signed out on this device. $logoutWarning')),
+        SnackBar(
+          content: Text(
+            'Signed out on this device. ${logoutWarnings.join(' ')}',
+          ),
+        ),
       );
     }
   }

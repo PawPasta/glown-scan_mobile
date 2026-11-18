@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:glown_scan_mobile/core/network/api_client.dart';
 import 'package:glown_scan_mobile/core/network/api_endpoints.dart';
@@ -9,6 +11,27 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 void main() {
+  test(
+    'reads the Android IANA timezone ID from the native system zone',
+    () async {
+      TestWidgetsFlutterBinding.ensureInitialized();
+      const channel = MethodChannel('glownscan/device');
+      debugDefaultTargetPlatformOverride = TargetPlatform.android;
+      addTearDown(() {
+        debugDefaultTargetPlatformOverride = null;
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+            .setMockMethodCallHandler(channel, null);
+      });
+      TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .setMockMethodCallHandler(channel, (call) async {
+            expect(call.method, 'getTimezoneId');
+            return 'Asia/Ho_Chi_Minh';
+          });
+
+      expect((await DeviceMetadata.read()).timezone, 'Asia/Ho_Chi_Minh');
+    },
+  );
+
   test('registers FCM token with installation and device metadata', () async {
     final api = DeviceApiClient(
       apiClient: ApiClient(

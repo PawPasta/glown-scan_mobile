@@ -20,13 +20,11 @@ abstract interface class AuthApiContract {
   Future<ApiResponse> loginMobile({
     required String email,
     required String password,
-    String? fcmToken,
     MobilePlatform platform,
   });
 
   Future<ApiResponse> firebaseLogin({
     required String idToken,
-    String? fcmToken,
     MobilePlatform platform,
   });
 
@@ -40,6 +38,22 @@ abstract interface class AuthApiContract {
   Future<ApiResponse> resendPasswordReset({required String email});
 
   Future<ApiResponse> resendEmailVerification({required String email});
+
+  Future<ApiResponse> verifyEmail({
+    required String email,
+    required String token,
+  });
+
+  Future<bool> checkEmailVerification({
+    required String email,
+    required String token,
+  });
+
+  Future<ApiResponse> confirmPasswordReset({
+    required String email,
+    required String token,
+    required String newPassword,
+  });
 
   Future<bool> checkPasswordReset({
     required String email,
@@ -79,30 +93,19 @@ class AuthApi implements AuthApiContract {
   Future<ApiResponse> loginMobile({
     required String email,
     required String password,
-    String? fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) => _apiClient.post(
     ApiEndpoints.loginMobile,
-    json: {
-      'email': email,
-      'password': password,
-      'platform': platform.apiValue,
-      if (fcmToken != null && fcmToken.isNotEmpty) 'fcmToken': fcmToken,
-    },
+    json: {'email': email, 'password': password, 'platform': platform.apiValue},
   );
 
   @override
   Future<ApiResponse> firebaseLogin({
     required String idToken,
-    String? fcmToken,
     MobilePlatform platform = MobilePlatform.android,
   }) => _apiClient.post(
     ApiEndpoints.firebaseLogin,
-    json: {
-      'idToken': idToken,
-      'platform': platform.apiValue,
-      if (fcmToken != null && fcmToken.isNotEmpty) 'fcmToken': fcmToken,
-    },
+    json: {'idToken': idToken, 'platform': platform.apiValue},
   );
 
   @override
@@ -124,6 +127,37 @@ class AuthApi implements AuthApiContract {
       );
 
   @override
+  Future<ApiResponse> verifyEmail({
+    required String email,
+    required String token,
+  }) => _apiClient.post(
+    ApiEndpoints.verifyEmail,
+    json: {'email': email, 'token': token},
+  );
+
+  @override
+  Future<bool> checkEmailVerification({
+    required String email,
+    required String token,
+  }) async {
+    final response = await _apiClient.post(
+      ApiEndpoints.checkEmailVerification,
+      json: {'email': email, 'token': token},
+    );
+    return _readConsumedState(response.data);
+  }
+
+  @override
+  Future<ApiResponse> confirmPasswordReset({
+    required String email,
+    required String token,
+    required String newPassword,
+  }) => _apiClient.post(
+    ApiEndpoints.confirmPasswordReset,
+    json: {'email': email, 'token': token, 'newPassword': newPassword},
+  );
+
+  @override
   Future<bool> checkPasswordReset({
     required String email,
     required String token,
@@ -132,7 +166,10 @@ class AuthApi implements AuthApiContract {
       ApiEndpoints.checkPasswordReset,
       json: {'email': email, 'token': token},
     );
-    final data = response.data;
+    return _readConsumedState(response.data);
+  }
+
+  bool _readConsumedState(Object? data) {
     if (data is! Map<String, dynamic> || data['success'] is! bool) {
       throw const ApiException(
         'The token check response is missing a valid data.success field.',

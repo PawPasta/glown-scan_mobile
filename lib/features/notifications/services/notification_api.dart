@@ -47,9 +47,15 @@ class AppNotification {
     required this.title,
     required this.body,
     required this.read,
+    this.type,
+    this.payload,
+    this.createdAt,
   });
   final String id, title, body;
   final bool read;
+  final String? type;
+  final Object? payload;
+  final String? createdAt;
   factory AppNotification.fromJson(Object? value) {
     if (value is! Map<String, dynamic> ||
         value['id'] is! String ||
@@ -65,8 +71,27 @@ class AppNotification {
       title: value['title'] as String,
       body: value['body'] as String,
       read: value['readAt'] != null,
+      type: value['type'] as String?,
+      payload: value['payload'],
+      createdAt: value['createdAt'] as String?,
     );
   }
+}
+
+class NotificationInbox {
+  const NotificationInbox({
+    required this.items,
+    required this.total,
+    required this.page,
+    required this.limit,
+  });
+
+  final List<AppNotification> items;
+  final int total;
+  final int page;
+  final int limit;
+
+  bool get hasMore => items.length < total;
 }
 
 abstract interface class NotificationApiContract {
@@ -74,7 +99,7 @@ abstract interface class NotificationApiContract {
   Future<NotificationPreferences> savePreferences(
     NotificationPreferences value,
   );
-  Future<List<AppNotification>> getNotifications();
+  Future<NotificationInbox> getNotifications({int page = 1, int limit = 30});
   Future<void> markRead(String id);
   Future<void> markAllRead();
 }
@@ -101,9 +126,14 @@ class NotificationApi implements NotificationApiContract {
     )).data,
   );
   @override
-  Future<List<AppNotification>> getNotifications() async {
+  Future<NotificationInbox> getNotifications({
+    int page = 1,
+    int limit = 30,
+  }) async {
+    final safePage = page.clamp(1, 9999);
+    final safeLimit = limit.clamp(1, 100);
     final data = (await _client.get(
-      '${ApiEndpoints.notifications}?page=1&limit=30',
+      '${ApiEndpoints.notifications}?page=$safePage&limit=$safeLimit',
       requiresAuth: true,
     )).data;
     if (data is! Map<String, dynamic> || data['items'] is! List) {
@@ -112,7 +142,15 @@ class NotificationApi implements NotificationApiContract {
         kind: ApiErrorKind.invalidResponse,
       );
     }
-    return (data['items'] as List).map(AppNotification.fromJson).toList();
+    final items = (data['items'] as List)
+        .map(AppNotification.fromJson)
+        .toList();
+    return NotificationInbox(
+      items: items,
+      total: data['total'] as int? ?? items.length,
+      page: safePage,
+      limit: safeLimit,
+    );
   }
 
   @override
