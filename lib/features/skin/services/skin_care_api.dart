@@ -100,9 +100,18 @@ class SkinAnalysisSession {
 }
 
 class SkinAnalysisHistory {
-  const SkinAnalysisHistory({required this.items, required this.total});
+  const SkinAnalysisHistory({
+    required this.items,
+    required this.total,
+    required this.page,
+    required this.limit,
+  });
   final List<SkinAnalysisSession> items;
   final int total;
+  final int page;
+  final int limit;
+
+  bool get hasMore => page * limit < total;
 }
 
 class ProductRecommendation {
@@ -237,8 +246,13 @@ class SkinCareApi implements SkinCareApiContract {
 
   @override
   Future<SkinAnalysisHistory> getHistory({int page = 1, int limit = 20}) async {
+    final safePage = page < 1 ? 1 : page;
+    final safeLimit = limit.clamp(1, 100);
+    final query = Uri(
+      queryParameters: {'page': '$safePage', 'limit': '$safeLimit'},
+    ).query;
     final response = await _apiClient.get(
-      '${ApiEndpoints.skinAnalysis}?page=${page.clamp(1, 999)}&limit=${limit.clamp(1, 100)}',
+      '${ApiEndpoints.skinAnalysis}?$query',
       requiresAuth: true,
     );
     final data = response.data;
@@ -251,6 +265,8 @@ class SkinCareApi implements SkinCareApiContract {
     return SkinAnalysisHistory(
       items: (data['items'] as List).map(SkinAnalysisSession.fromJson).toList(),
       total: data['total'] as int? ?? 0,
+      page: safePage,
+      limit: safeLimit,
     );
   }
 

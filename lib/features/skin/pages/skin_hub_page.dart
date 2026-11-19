@@ -19,6 +19,7 @@ class SkinHubPage extends StatefulWidget {
 class _SkinHubPageState extends State<SkinHubPage> {
   late final SkinCareApiContract _api = widget.api ?? SkinCareApi();
   late Future<_SkinHubData> _data = _load();
+  bool _isLoadingMoreHistory = false;
 
   Future<_SkinHubData> _load() async {
     final assessment = await _api.getAssessment();
@@ -40,6 +41,38 @@ class _SkinHubPageState extends State<SkinHubPage> {
         recommendations: const [],
         recommendationsRequirePremium: true,
       );
+    }
+  }
+
+  Future<void> _loadMoreHistory(_SkinHubData current) async {
+    if (_isLoadingMoreHistory || !current.history.hasMore) return;
+    setState(() => _isLoadingMoreHistory = true);
+    try {
+      final nextPage = current.history.page + 1;
+      final next = await _api.getHistory(
+        page: nextPage,
+        limit: current.history.limit,
+      );
+      if (!mounted) return;
+      setState(() {
+        _data = Future.value(
+          current.copyWith(
+            history: SkinAnalysisHistory(
+              items: [...current.history.items, ...next.items],
+              total: next.total,
+              page: nextPage,
+              limit: next.limit,
+            ),
+          ),
+        );
+      });
+    } on ApiException catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    } finally {
+      if (mounted) setState(() => _isLoadingMoreHistory = false);
     }
   }
 
@@ -182,6 +215,23 @@ class _SkinHubPageState extends State<SkinHubPage> {
                 (item) => _AnalysisTile(
                   item,
                   onTap: () => _openAnalysisDetails(item),
+                ),
+              ),
+            if (data.history.hasMore)
+              Center(
+                child: TextButton.icon(
+                  onPressed: _isLoadingMoreHistory
+                      ? null
+                      : () => _loadMoreHistory(data),
+                  icon: _isLoadingMoreHistory
+                      ? const SizedBox.square(
+                          dimension: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.expand_more),
+                  label: Text(
+                    _isLoadingMoreHistory ? 'Loading…' : 'Load more analyses',
+                  ),
                 ),
               ),
             const SizedBox(height: 24),
@@ -361,6 +411,15 @@ class _SkinHubData {
   final bool recommendationsRequirePremium;
   final RecommendationSource? recommendationSource;
   final String? recommendationsGeneratedAt;
+
+  _SkinHubData copyWith({SkinAnalysisHistory? history}) => _SkinHubData(
+    assessment: assessment,
+    history: history ?? this.history,
+    recommendations: recommendations,
+    recommendationsRequirePremium: recommendationsRequirePremium,
+    recommendationSource: recommendationSource,
+    recommendationsGeneratedAt: recommendationsGeneratedAt,
+  );
 }
 
 class _AssessmentCard extends StatelessWidget {
