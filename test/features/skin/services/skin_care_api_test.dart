@@ -159,6 +159,35 @@ void main() {
     expect(history.hasMore, isFalse);
   });
 
+  test(
+    'preserves large page values and caps limit at the backend maximum',
+    () async {
+      final api = SkinCareApi(
+        apiClient: ApiClient(
+          baseUri: Uri.parse('https://api.glownscan.xyz/'),
+          accessTokenProvider: () async => 'token',
+          httpClient: MockClient((request) async {
+            expect(request.url.path, ApiEndpoints.skinAnalysis);
+            expect(request.url.queryParameters, {
+              'page': '10000',
+              'limit': '100',
+            });
+            return _json({
+              'status': 200,
+              'message': 'Success',
+              'data': {'items': [], 'total': 0},
+            }, 200);
+          }),
+        ),
+      );
+      addTearDown(api.close);
+
+      final history = await api.getHistory(page: 10000, limit: 101);
+      expect(history.page, 10000);
+      expect(history.limit, 100);
+    },
+  );
+
   test('rejects NONE with another concern before making a request', () async {
     final api = SkinCareApi(
       apiClient: ApiClient(

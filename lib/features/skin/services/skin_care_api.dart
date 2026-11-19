@@ -246,7 +246,7 @@ class SkinCareApi implements SkinCareApiContract {
 
   @override
   Future<SkinAnalysisHistory> getHistory({int page = 1, int limit = 20}) async {
-    final safePage = page.clamp(1, 9999);
+    final safePage = page < 1 ? 1 : page;
     final safeLimit = limit.clamp(1, 100);
     final query = Uri(
       queryParameters: {'page': '$safePage', 'limit': '$safeLimit'},
