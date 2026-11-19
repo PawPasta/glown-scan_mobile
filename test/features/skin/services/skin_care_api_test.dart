@@ -80,7 +80,7 @@ void main() {
                 'items': [
                   {'id': 'scan-1', 'status': 'SUCCEEDED'},
                 ],
-                'total': 1,
+                'total': 21,
               },
             }, 200);
           }
@@ -120,10 +120,11 @@ void main() {
       ),
     );
     addTearDown(api.close);
-    expect(
-      (await api.getHistory(page: 2, limit: 10)).items.single.id,
-      'scan-1',
-    );
+    final history = await api.getHistory(page: 2, limit: 10);
+    expect(history.items.single.id, 'scan-1');
+    expect(history.page, 2);
+    expect(history.limit, 10);
+    expect(history.hasMore, isTrue);
     expect((await api.getAnalysisSession('scan-1')).result, {
       'summary': 'Clear skin',
     });
@@ -132,6 +133,30 @@ void main() {
     expect(recommendations.items.single.matchedConcerns, ['ACNE']);
     expect(recommendations.source.analysisAvailable, isTrue);
     expect(recommendations.generatedAt, '2026-11-18T12:00:00.000Z');
+  });
+
+  test('clamps analysis history paging to the backend contract', () async {
+    final api = SkinCareApi(
+      apiClient: ApiClient(
+        baseUri: Uri.parse('https://api.glownscan.xyz/'),
+        accessTokenProvider: () async => 'token',
+        httpClient: MockClient((request) async {
+          expect(request.url.path, ApiEndpoints.skinAnalysis);
+          expect(request.url.queryParameters, {'page': '1', 'limit': '1'});
+          return _json({
+            'status': 200,
+            'message': 'Success',
+            'data': {'items': [], 'total': 0},
+          }, 200);
+        }),
+      ),
+    );
+    addTearDown(api.close);
+
+    final history = await api.getHistory(page: -5, limit: 0);
+    expect(history.page, 1);
+    expect(history.limit, 1);
+    expect(history.hasMore, isFalse);
   });
 
   test('rejects NONE with another concern before making a request', () async {
