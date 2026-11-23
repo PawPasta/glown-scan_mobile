@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:camera/camera.dart';
@@ -11,7 +10,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_theme.dart';
-import '../../premium/widgets/premium_required_view.dart';
+import '../../skin/widgets/skin_analysis_result_view.dart';
 import '../services/skin_analysis_api.dart';
 
 class CameraAnalysisPage extends StatefulWidget {
@@ -47,7 +46,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
   XFile? _capturedImage;
   Uint8List? _capturedBytes;
   String? _analysisIdempotencyKey;
-  String? _analysisJson;
+  Object? _analysisResult;
   bool _analysisRequiresPremium = false;
   StreamSubscription<void>? _analysisStatusSubscription;
 
@@ -188,7 +187,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
       _capturedImage = null;
       _capturedBytes = null;
       _analysisIdempotencyKey = null;
-      _analysisJson = null;
+      _analysisResult = null;
       _analysisRequiresPremium = false;
       _errorMessage = null;
       _stage = _CameraStage.scanning;
@@ -249,10 +248,8 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
           'GlowScan AI could not complete this analysis${result.errorCode == null ? '.' : ': ${result.errorCode}'}',
         );
       }
-      final json = const JsonEncoder.withIndent('  ').convert(result.result);
-      if (!mounted) return;
       setState(() {
-        _analysisJson = json;
+        _analysisResult = result.result;
         _analysisRequiresPremium = result.requiresPremium;
         _stage = _CameraStage.result;
       });
@@ -341,7 +338,7 @@ class _CameraAnalysisPageState extends State<CameraAnalysisPage> {
     ),
     _CameraStage.analyzing => const _AnalyzingView(),
     _CameraStage.result => _ResultView(
-      json: _analysisJson ?? 'null',
+      result: _analysisResult,
       requiresPremium: _analysisRequiresPremium,
       onNewScan: _retake,
     ),
@@ -519,11 +516,11 @@ class _AnalyzingView extends StatelessWidget {
 
 class _ResultView extends StatelessWidget {
   const _ResultView({
-    required this.json,
+    required this.result,
     required this.requiresPremium,
     required this.onNewScan,
   });
-  final String json;
+  final Object? result;
   final bool requiresPremium;
   final VoidCallback onNewScan;
   @override
@@ -531,27 +528,11 @@ class _ResultView extends StatelessWidget {
     padding: const EdgeInsets.all(20),
     children: [
       Text(
-        requiresPremium ? 'Your skin summary' : 'Analysis response',
+        requiresPremium ? 'Your skin summary' : 'Your skin analysis',
         style: Theme.of(context).textTheme.headlineSmall,
       ),
-      const SizedBox(height: 8),
-      if (requiresPremium) ...[
-        const Text(
-          'Your quality result and overall summary are ready. Upgrade to access detailed metrics and observations.',
-        ),
-        const SizedBox(height: 16),
-        const PremiumRequiredView(
-          feature: 'detailed skin insights',
-          compact: true,
-        ),
-        const SizedBox(height: 24),
-      ],
-      const Text('Raw JSON returned by the API:'),
-      const SizedBox(height: 16),
-      SelectableText(
-        json,
-        style: const TextStyle(fontFamily: 'monospace', fontSize: 12),
-      ),
+      const SizedBox(height: 14),
+      SkinAnalysisResultView(result: result, requiresPremium: requiresPremium),
       const SizedBox(height: 24),
       OutlinedButton(
         onPressed: onNewScan,

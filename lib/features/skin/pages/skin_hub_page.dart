@@ -1,11 +1,10 @@
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../../../core/network/api_client.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../premium/widgets/premium_required_view.dart';
 import '../services/skin_care_api.dart';
+import '../widgets/skin_analysis_result_view.dart';
 import 'product_detail_page.dart';
 
 class SkinHubPage extends StatefulWidget {
@@ -110,9 +109,6 @@ class _SkinHubPageState extends State<SkinHubPage> {
     try {
       final session = await _api.getAnalysisSession(item.id);
       if (!mounted) return;
-      final resultJson = session.result == null
-          ? null
-          : const JsonEncoder.withIndent('  ').convert(session.result);
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
@@ -130,17 +126,11 @@ class _SkinHubPageState extends State<SkinHubPage> {
                     Text('Completed: ${session.completedAt}'),
                   if (session.errorCode != null)
                     Text('Error: ${session.errorCode}'),
-                  if (session.requiresPremium) ...[
-                    const SizedBox(height: 12),
-                    const PremiumRequiredView(
-                      feature: 'detailed analysis results',
-                      compact: true,
-                    ),
-                  ],
-                  if (resultJson != null) ...[
-                    const SizedBox(height: 12),
-                    SelectableText(resultJson),
-                  ],
+                  const SizedBox(height: 12),
+                  SkinAnalysisResultView(
+                    result: session.result,
+                    requiresPremium: session.requiresPremium,
+                  ),
                 ],
               ),
             ),
