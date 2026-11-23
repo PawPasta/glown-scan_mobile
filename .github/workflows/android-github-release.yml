@@ -126,7 +126,7 @@ jobs:
           fi
           apk_path=build/app/outputs/flutter-apk/app-release.apk
           "$apksigner_path" verify --print-certs "$apk_path"
-          actual=$("$apksigner_path" verify --print-certs "$apk_path" | awk -F': ' '/certificate SHA-256 digest:/ {print $2; exit}')
+          actual=$("$apksigner_path" verify --print-certs "$apk_path" | awk -F': ' '/certificate SHA-256 digest:/ {print $NF; exit}')
           expected=$(printf '%s' "$ANDROID_STAGING_CERT_SHA256" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')
           actual=$(printf '%s' "$actual" | tr -d '[:space:]:' | tr '[:upper:]' '[:lower:]')
           if [ -z "$actual" ] || [ "$actual" != "$expected" ]; then
